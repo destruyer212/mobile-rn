@@ -23,8 +23,9 @@ import {
 import { LocationRepository } from '../data/locationRepository';
 import { canUseSupabaseAuth } from '../lib/supabase';
 import type { RootStackParamList } from '../navigation/types';
-import { startTracking, stopTracking } from '../services/trackingService';
+import { getPendingTrackingQueueCount, startTracking, stopTracking } from '../services/trackingService';
 import { isTrackingDesired, setTrackingDesired } from '../services/workerTrackingPrefs';
+import { BACKGROUND_LOCATION_TASK } from '../tasks/backgroundLocationTask';
 import { AppColors } from '../theme/colors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'WorkerHome'>;
@@ -40,6 +41,9 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
   const [lastLng, setLastLng] = useState<number | null>(null);
   const [lastSentAt, setLastSentAt] = useState<Date | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [backgroundActive, setBackgroundActive] = useState(false);
+  const [backgroundPermissionGranted, setBackgroundPermissionGranted] = useState(false);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const appOpenNotifiedThisSession = useRef(false);
   const lastAppOpenPushUtc = useRef<Date | null>(null);
   const stationaryAnchor = useRef<{ lat: number; lng: number } | null>(null);
@@ -48,6 +52,19 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
 
   const showInfo = useCallback((message: string) => {
     setStatusMessage(message);
+  }, []);
+
+  const refreshBackgroundStatus = useCallback(async () => {
+    try {
+      const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      setBackgroundActive(started);
+      const bgPerm = await Location.getBackgroundPermissionsAsync();
+      setBackgroundPermissionGranted(bgPerm.status === Location.PermissionStatus.GRANTED);
+      const queued = await getPendingTrackingQueueCount();
+      setPendingQueueCount(queued);
+    } catch {
+      setBackgroundActive(false);
+    }
   }, []);
 
   const workerLabel = username.split('@')[0]?.trim() || 'Trabajador';
@@ -74,22 +91,39 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
     void (async () => {
       await trySendAppOpenPush(false);
       const desired = await isTrackingDesired(userId);
+      await refreshBackgroundStatus();
       if (!desired) return;
+      const allowed = await ensureLocationPermissionExplained({
+        requireBackground: true,
+      });
+      if (!allowed) {
+        showInfo('Activa ubicacion en segundo plano para continuar con seguimiento aun cerrando la app.');
+        return;
+      }
       const r = await startTracking({ userId, email: username });
       if (r.ok) {
         setTrackingEnabled(true);
+        await refreshBackgroundStatus();
       }
     })();
-  }, [userId, username, trySendAppOpenPush]);
+  }, [userId, username, trySendAppOpenPush, showInfo, refreshBackgroundStatus]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void refreshBackgroundStatus();
+    }, 12000);
+    return () => clearInterval(timer);
+  }, [refreshBackgroundStatus]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void trySendAppOpenPush(true);
+        void refreshBackgroundStatus();
       }
     });
     return () => sub.remove();
-  }, [trySendAppOpenPush]);
+  }, [trySendAppOpenPush, refreshBackgroundStatus]);
 
   async function onToggle(value: boolean) {
     setStatusMessage(null);
@@ -106,9 +140,11 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
       if (!r.ok) {
         showInfo(r.message ?? 'No se pudo iniciar seguimiento.');
         setTrackingEnabled(false);
+        setBackgroundActive(false);
         return;
       }
       setTrackingEnabled(true);
+      await refreshBackgroundStatus();
       const outcome = await notifyAdminsWorkerEvent({
         workerName: workerLabel,
         event: 'tracking_on',
@@ -119,7 +155,7 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
         showInfo('Seguimiento activo. El envio push a admins fallo, pero GPS sigue activo.');
       }
       showInfo(
-        `Seguimiento activo. Enviando cada ${UPDATE_INTERVAL_SECONDS} s (segundo plano si el sistema lo permite).`,
+        `Seguimiento activo. Segundo plano activo con notificacion del sistema.`,
       );
       return;
     }
@@ -130,6 +166,8 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
       event: 'disconnect',
     });
     setTrackingEnabled(false);
+    setBackgroundActive(false);
+    setPendingQueueCount(0);
     showInfo('Seguimiento detenido.');
   }
 
@@ -197,7 +235,15 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
         }
       }
     } catch {
-      showInfo('Error al enviar ubicacion. Intenta nuevamente.');
+      const queued = await getPendingTrackingQueueCount();
+      setPendingQueueCount(queued);
+      if (queued > 0) {
+        showInfo(
+          `Sin internet. Guardamos ${queued} punto(s) localmente y se reenviaran automatico al reconectar.`,
+        );
+      } else {
+        showInfo('Error al enviar ubicacion. Intenta nuevamente.');
+      }
     } finally {
       setSending(false);
     }
@@ -232,6 +278,23 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
           <View style={styles.statusPill}>
             <Text style={styles.statusPillText}>Estado: {syncState}</Text>
           </View>
+          <View style={[styles.statusPill, { marginTop: 8, backgroundColor: backgroundActive ? '#DCFCE7' : '#FEF3C7' }]}>
+            <Text style={[styles.statusPillText, { color: backgroundActive ? '#166534' : '#92400E' }]}>
+              {backgroundActive
+                ? 'Segundo plano activo (notificacion persistente encendida)'
+                : 'Segundo plano no activo'}
+            </Text>
+          </View>
+          {!backgroundPermissionGranted ? (
+            <Text style={styles.permissionWarn}>
+              Falta permiso de ubicacion en segundo plano. Te lo pediremos al activar seguimiento.
+            </Text>
+          ) : null}
+          {pendingQueueCount > 0 ? (
+            <Text style={styles.offlineQueueInfo}>
+              Reconexion pendiente: {pendingQueueCount} punto(s) en cola local.
+            </Text>
+          ) : null}
 
           <View style={styles.switchRow}>
             <View style={styles.switchText}>
@@ -341,4 +404,6 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 11, fontWeight: '800', color: '#6B7280', letterSpacing: 0.3, textTransform: 'uppercase' },
   infoValue: { marginTop: 4, fontSize: 14, fontWeight: '800', color: AppColors.navy },
   err: { marginTop: 12, color: '#B91C1C', fontSize: 13, fontWeight: '600' },
+  permissionWarn: { marginTop: 8, color: '#92400E', fontSize: 12, fontWeight: '700' },
+  offlineQueueInfo: { marginTop: 8, color: '#1D4ED8', fontSize: 12, fontWeight: '700' },
 });

@@ -75,7 +75,10 @@ export function LoginScreen({ navigation }: Props) {
           role: selectedRole,
         });
         if (result.role === 'admin') {
-          navigation.reset({ index: 0, routes: [{ name: 'AdminHome', params: { username: result.username } }] });
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'AdminHome', params: { username: result.username, role: result.role } }],
+          });
         } else {
           navigation.reset({
             index: 0,
@@ -91,7 +94,10 @@ export function LoginScreen({ navigation }: Props) {
           role: selectedRole,
         });
         if (selectedRole === 'admin') {
-          navigation.reset({ index: 0, routes: [{ name: 'AdminHome', params: { username: trimmedEmail } }] });
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'AdminHome', params: { username: trimmedEmail, role: selectedRole } }],
+          });
         } else {
           navigation.reset({
             index: 0,

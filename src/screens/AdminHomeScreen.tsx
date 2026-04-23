@@ -6,6 +6,6 @@ import { AdminDashboard } from './admin/AdminDashboard';
 type Props = NativeStackScreenProps<RootStackParamList, 'AdminHome'>;
 
 export function AdminHomeScreen({ route }: Props) {
-  const { username } = route.params;
-  return <AdminDashboard username={username} />;
+  const { username, role } = route.params;
+  return <AdminDashboard username={username} role={role} />;
 }

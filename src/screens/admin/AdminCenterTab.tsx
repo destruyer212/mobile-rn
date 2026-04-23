@@ -12,8 +12,13 @@ import {
 } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { can } from '../../auth/permissions';
+import type { UserRole } from '../../auth/userRole';
 import { LocationRepository } from '../../data/locationRepository';
+import type { AdminAuditEntry } from '../../data/locationRepository';
+import type { AdminHealthSnapshot } from '../../data/locationRepository';
 import type { OperationalBase } from '../../domain/operationalBase';
 import { isOperationalBaseConfigured } from '../../domain/operationalBase';
 import { canUseSupabaseAuth, getSupabaseClient } from '../../lib/supabase';
@@ -24,10 +29,12 @@ const repo = new LocationRepository();
 
 type Props = {
   username: string;
+  role: UserRole;
 };
 
-export function AdminCenterTab({ username }: Props) {
+export function AdminCenterTab({ username, role }: Props) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
   const version = `${Constants.expoConfig?.version ?? '1.0.0'}`;
 
   const [base, setBase] = useState<OperationalBase | null>(null);
@@ -36,6 +43,8 @@ export function AdminCenterTab({ username }: Props) {
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameText, setRenameText] = useState('');
+  const [health, setHealth] = useState<AdminHealthSnapshot | null>(null);
+  const [auditEntries, setAuditEntries] = useState<AdminAuditEntry[]>([]);
 
   function formatLocalDateTime(d: Date | null): string {
     if (!d) return '—';
@@ -58,12 +67,20 @@ export function AdminCenterTab({ username }: Props) {
     try {
       const b = await repo.fetchOperationalBase();
       setBase(b);
+      if (can(role, 'health.view')) {
+        const snapshot = await repo.fetchAdminHealthSnapshot();
+        setHealth(snapshot);
+      }
+      if (can(role, 'audit.view')) {
+        const logs = await repo.fetchRecentAdminAuditLogs();
+        setAuditEntries(logs);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     void load();
@@ -87,6 +104,11 @@ export function AdminCenterTab({ username }: Props) {
         longitude: base.longitude ?? undefined,
         radiusMeters: base.radiusMeters,
       });
+      void repo.logAdminAction({
+        actorEmail: username,
+        action: 'base_renamed_from_center',
+        metadata: { name },
+      });
       setRenameOpen(false);
       await load();
     } catch (e) {
@@ -108,7 +130,10 @@ export function AdminCenterTab({ username }: Props) {
 
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[
+        styles.container,
+        { paddingTop: Math.max(14, insets.top + 10), paddingBottom: Math.max(28, insets.bottom + 18) },
+      ]}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} tintColor={AppColors.accent} />}
     >
       <View style={styles.sectionTag}>
@@ -122,11 +147,48 @@ export function AdminCenterTab({ username }: Props) {
       <View style={styles.card}>
         <Text style={styles.k}>Sesion</Text>
         <Text style={styles.v}>{username}</Text>
+        <Text style={styles.meta}>Rol: {role === 'admin' ? 'Administrador' : 'Trabajador'}</Text>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.k}>Version</Text>
         <Text style={styles.v}>{version}</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.k}>Permisos de producto</Text>
+        <Text style={styles.meta}>Gestion equipo: {can(role, 'team.manage') ? 'Si' : 'No'}</Text>
+        <Text style={styles.meta}>Editar base: {can(role, 'base.edit') ? 'Si' : 'No'}</Text>
+        <Text style={styles.meta}>Exporte PDF ejecutivo: {can(role, 'reports.export.pdf') ? 'Si' : 'No'}</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.k}>Dashboard health</Text>
+        {!can(role, 'health.view') ? (
+          <Text style={styles.meta}>Sin permisos para vista de health.</Text>
+        ) : !health ? (
+          <Text style={styles.meta}>Cargando metricas...</Text>
+        ) : (
+          <>
+            <Text style={styles.meta}>Ubicaciones online: {health.workerLocationsOnline}</Text>
+            <Text style={styles.meta}>Ubicaciones totales: {health.workerLocationsTotal}</Text>
+            <Text style={styles.meta}>Unidades stale: {health.staleWorkers}</Text>
+            <Text style={styles.meta}>Base configurada: {health.baseConfigured ? 'Si' : 'No'}</Text>
+            <Text style={styles.meta}>Chequeado: {formatLocalDateTime(health.checkedAt)}</Text>
+          </>
+        )}
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.k}>Audit log</Text>
+        {!can(role, 'audit.view') ? (
+          <Text style={styles.meta}>Sin permisos para visualizar auditoria.</Text>
+        ) : auditEntries.length === 0 ? (
+          <Text style={styles.meta}>Sin eventos recientes o tabla no disponible.</Text>
+        ) : (
+          auditEntries.map((entry, idx) => (
+            <Text key={`${entry.actorEmail}-${entry.action}-${idx}`} style={styles.meta}>
+              {formatLocalDateTime(entry.createdAt)} · {entry.actorEmail} · {entry.action}
+            </Text>
+          ))
+        )}
       </View>
 
       <View style={styles.card}>
@@ -207,7 +269,7 @@ export function AdminCenterTab({ username }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: AppColors.surface, paddingBottom: 32 },
+  container: { paddingHorizontal: 16, backgroundColor: '#F1F5F9' },
   sectionTag: {
     alignSelf: 'flex-start',
     backgroundColor: 'rgba(0,194,168,0.16)',
@@ -223,7 +285,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
-  hero: { backgroundColor: AppColors.navy, borderRadius: 16, padding: 16, marginBottom: 12 },
+  hero: { backgroundColor: AppColors.navy, borderRadius: 16, padding: 16, marginBottom: 12, marginTop: 6 },
   heroTitle: { color: AppColors.onDark, fontSize: 22, fontWeight: '900' },
   heroSub: { marginTop: 6, color: 'rgba(232,236,242,0.75)', fontSize: 13 },
   card: {
@@ -231,8 +293,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginTop: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   k: { fontSize: 11, fontWeight: '900', color: '#6B7280', textTransform: 'uppercase' },
   v: { marginTop: 8, fontSize: 15, fontWeight: '800', color: '#111827' },

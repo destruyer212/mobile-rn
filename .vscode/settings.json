@@ -1,0 +1,32 @@
+{
+  "problems.decorations.enabled": false,
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/.metadata/**",
+    "**/archetype-resources/**",
+    "**/META-INF/maven/**"
+  ],
+  "java.import.gradle.enabled": true,
+  "gradle.nestedProjects": false,
+  "java.project.resourceFilters": ["node_modules", ".git"],
+  "java.errors.incompleteClasspath.severity": "ignore",
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.project.importOnFirstTimeStartup": "automatic",
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/objects/**": true,
+    "**/android/.gradle/**": true,
+    "**/android/build/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true
+  },
+  "typescript.tsserver.watchOptions": {
+    "watchFile": "useFsEventsOnParentDirectory",
+    "watchDirectory": "useFsEvents",
+    "fallbackPolling": "dynamicPriority",
+    "synchronousWatchDirectory": true,
+    "excludeDirectories": ["**/node_modules", "**/android/.gradle", "**/android/build"]
+  }
+}

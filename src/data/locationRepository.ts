@@ -4,6 +4,26 @@ import { operationalBaseFromRow } from '../domain/operationalBase';
 import type { WorkerLocation } from '../domain/workerLocation';
 import { workerLocationFromRow } from '../domain/workerLocation';
 
+export type WorkerRoutePoint = {
+  latitude: number;
+  longitude: number;
+  updatedAt: Date;
+};
+
+export type AdminHealthSnapshot = {
+  workerLocationsOnline: number;
+  workerLocationsTotal: number;
+  staleWorkers: number;
+  baseConfigured: boolean;
+  checkedAt: Date;
+};
+
+export type AdminAuditEntry = {
+  actorEmail: string;
+  action: string;
+  createdAt: Date;
+};
+
 export class LocationRepository {
   async fetchProfileFirstNamesByUserIds(userIds: string[]): Promise<Record<string, string>> {
     if (userIds.length === 0) return {};
@@ -49,6 +69,42 @@ export class LocationRepository {
       .order('updated_at', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => workerLocationFromRow(row as Record<string, unknown>));
+  }
+
+  async fetchWorkerRouteHistory(params: {
+    userId: string;
+    limit?: number;
+  }): Promise<WorkerRoutePoint[]> {
+    const { userId, limit = 80 } = params;
+    const client = getSupabaseClient();
+    // Best-effort: some deployments may not have this table yet.
+    const { data, error } = await client
+      .from('worker_location_history')
+      .select('latitude,longitude,updated_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: true })
+      .limit(limit);
+
+    if (error) {
+      // Graceful fallback to current location record if history table is unavailable.
+      const { data: currentRows, error: currentErr } = await client
+        .from('worker_locations')
+        .select('latitude,longitude,updated_at')
+        .eq('user_id', userId)
+        .limit(1);
+      if (currentErr) throw currentErr;
+      return (currentRows ?? []).map((row) => ({
+        latitude: Number((row as Record<string, unknown>).latitude ?? 0),
+        longitude: Number((row as Record<string, unknown>).longitude ?? 0),
+        updatedAt: new Date(String((row as Record<string, unknown>).updated_at ?? Date.now())),
+      }));
+    }
+
+    return (data ?? []).map((row) => ({
+      latitude: Number((row as Record<string, unknown>).latitude ?? 0),
+      longitude: Number((row as Record<string, unknown>).longitude ?? 0),
+      updatedAt: new Date(String((row as Record<string, unknown>).updated_at ?? Date.now())),
+    }));
   }
 
   async upsertMyLocation(params: {
@@ -109,5 +165,54 @@ export class LocationRepository {
     };
     const { error } = await getSupabaseClient().from('operational_base').upsert(row as never, { onConflict: 'id' });
     if (error) throw error;
+  }
+
+  async logAdminAction(params: {
+    actorEmail: string;
+    action: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const row = {
+      actor_email: params.actorEmail,
+      action: params.action,
+      metadata: params.metadata ?? {},
+      created_at: new Date().toISOString(),
+    };
+    const { error } = await getSupabaseClient().from('admin_audit_log').insert(row as never);
+    // In environments without this table, we avoid crashing app flows.
+    if (error) return;
+  }
+
+  async fetchAdminHealthSnapshot(): Promise<AdminHealthSnapshot> {
+    const workers = await this.fetchWorkerLocations();
+    const onlineMs = 60 * 1000;
+    const now = Date.now();
+    const online = workers.filter((w) => now - w.updatedAt.getTime() <= onlineMs).length;
+    const staleWorkers = workers.filter((w) => now - w.updatedAt.getTime() > 10 * 60 * 1000).length;
+    const base = await this.fetchOperationalBase();
+    const baseConfigured = Boolean(
+      base && base.enabled && base.latitude != null && base.longitude != null && base.radiusMeters > 0,
+    );
+    return {
+      workerLocationsOnline: online,
+      workerLocationsTotal: workers.length,
+      staleWorkers,
+      baseConfigured,
+      checkedAt: new Date(),
+    };
+  }
+
+  async fetchRecentAdminAuditLogs(limit = 8): Promise<AdminAuditEntry[]> {
+    const { data, error } = await getSupabaseClient()
+      .from('admin_audit_log')
+      .select('actor_email,action,created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return [];
+    return (data ?? []).map((row) => ({
+      actorEmail: String((row as Record<string, unknown>).actor_email ?? 'sistema'),
+      action: String((row as Record<string, unknown>).action ?? 'unknown'),
+      createdAt: new Date(String((row as Record<string, unknown>).created_at ?? Date.now())),
+    }));
   }
 }

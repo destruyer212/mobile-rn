@@ -1,6 +1,8 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useEffect } from 'react';
 
+import { requestLocationPermissionOnAppStart } from '../core/permissions/locationPermissionHelper';
 import { LoginScreen } from '../screens/LoginScreen';
 import { WorkerHomeScreen } from '../screens/WorkerHomeScreen';
 import { WorkerDiagnosticsScreen } from '../screens/WorkerDiagnosticsScreen';
@@ -10,6 +12,10 @@ import type { RootStackParamList } from './types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
+  useEffect(() => {
+    void requestLocationPermissionOnAppStart();
+  }, []);
+
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>

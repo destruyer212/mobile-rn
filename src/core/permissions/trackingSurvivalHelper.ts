@@ -17,7 +17,7 @@ export async function ensureAndroidTrackingSurvivalPrerequisites(): Promise<void
 
   const accepted = await confirm(
     'Seguimiento sin interrupciones',
-    'En muchos telefonos Android el sistema limita apps en segundo plano para ahorrar bateria. Si notas cortes, excluye Fleet Control de optimizacion de bateria.',
+    'En Android veras una notificacion fija indicando "segundo plano activo". Si notas cortes, excluye Fleet Control de optimizacion de bateria.',
   );
   if (!accepted) return;
 

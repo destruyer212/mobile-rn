@@ -1,8 +1,14 @@
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 
 import { canUseSupabaseAuth } from '../lib/supabase';
 import { LocationRepository } from '../data/locationRepository';
-import { setBackgroundTaskPayload, BACKGROUND_LOCATION_TASK } from '../tasks/backgroundLocationTask';
+import {
+  setBackgroundTaskPayload,
+  BACKGROUND_LOCATION_TASK,
+  upsertWithOfflineQueue,
+  getPendingUploadCount,
+} from '../tasks/backgroundLocationTask';
 import { UPDATE_INTERVAL_SECONDS } from '../constants/tracking';
 import { setTrackingDesired } from './workerTrackingPrefs';
 
@@ -11,25 +17,39 @@ const repo = new LocationRepository();
 let foregroundTimer: ReturnType<typeof setInterval> | null = null;
 
 async function upsert(userId: string, email: string, lat: number, lng: number) {
-  await repo.upsertMyLocation({
+  await upsertWithOfflineQueue({
     userId,
     email,
     latitude: lat,
     longitude: lng,
-    isTracking: true,
+    capturedAtIso: new Date().toISOString(),
   });
 }
 
 export async function requestLocationPermissions(requireBackground: boolean): Promise<boolean> {
-  const fg = await Location.requestForegroundPermissionsAsync();
+  const fgCurrent = await Location.getForegroundPermissionsAsync();
+  const fg =
+    fgCurrent.status === Location.PermissionStatus.GRANTED
+      ? fgCurrent
+      : await Location.requestForegroundPermissionsAsync();
   if (fg.status !== Location.PermissionStatus.GRANTED) {
     return false;
   }
+
   if (requireBackground) {
+    const bgCurrent = await Location.getBackgroundPermissionsAsync();
+    if (bgCurrent.status === Location.PermissionStatus.GRANTED) {
+      return true;
+    }
     try {
-      await Location.requestBackgroundPermissionsAsync();
+      const bg = await Location.requestBackgroundPermissionsAsync();
+      if (bg.status !== Location.PermissionStatus.GRANTED && Platform.OS === 'android') {
+        return false;
+      }
     } catch {
-      /* iOS / algunas builds: seguimos con primer plano */
+      if (Platform.OS === 'android') {
+        return false;
+      }
     }
   }
   return true;
@@ -50,7 +70,7 @@ export async function startTracking(params: { userId: string; email: string }): 
     return { ok: false, message: 'Sin permiso de ubicacion no podemos compartir tu posicion.' };
   }
 
-  setBackgroundTaskPayload({ userId: params.userId, email: params.email });
+  await setBackgroundTaskPayload({ userId: params.userId, email: params.email });
   await setTrackingDesired(params.userId, true);
 
   let bgOk = false;
@@ -62,8 +82,8 @@ export async function startTracking(params: { userId: string; email: string }): 
         timeInterval: UPDATE_INTERVAL_SECONDS * 1000,
         distanceInterval: 0,
         foregroundService: {
-          notificationTitle: 'Seguimiento activo',
-          notificationBody: `Compartiendo ubicacion cada ${UPDATE_INTERVAL_SECONDS} s`,
+          notificationTitle: 'Segundo plano activo',
+          notificationBody: `Seguimiento GPS ejecutandose cada ${UPDATE_INTERVAL_SECONDS}s`,
           notificationColor: '#00C2A8',
         },
       });
@@ -96,7 +116,7 @@ export async function startTracking(params: { userId: string; email: string }): 
 
 export async function stopTracking(userId: string): Promise<void> {
   await setTrackingDesired(userId, false);
-  setBackgroundTaskPayload(null);
+  await setBackgroundTaskPayload(null);
 
   if (foregroundTimer) {
     clearInterval(foregroundTimer);
@@ -119,4 +139,8 @@ export async function stopTracking(userId: string): Promise<void> {
 
 export function isForegroundTimerRunning(): boolean {
   return foregroundTimer != null;
+}
+
+export async function getPendingTrackingQueueCount(): Promise<number> {
+  return await getPendingUploadCount();
 }

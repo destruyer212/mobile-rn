@@ -2,6 +2,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Text } from 'react-native';
 
+import type { UserRole } from '../../auth/userRole';
 import { registerAdminDeviceToken } from '../../core/services/pushNotificationService';
 import { AdminCenterTab } from './AdminCenterTab';
 import { AdminOperationsTab } from './AdminOperationsTab';
@@ -17,7 +18,7 @@ export type AdminTabParamList = {
 
 const Tab = createBottomTabNavigator<AdminTabParamList>();
 
-export function AdminDashboard({ username }: { username: string }) {
+export function AdminDashboard({ username, role }: { username: string; role: UserRole }) {
   const [focusWorkerId, setFocusWorkerId] = useState<string | null>(null);
 
   const consumeFocus = useCallback(() => setFocusWorkerId(null), []);
@@ -67,6 +68,7 @@ export function AdminDashboard({ username }: { username: string }) {
         {() => (
           <AdminOperationsTab
             username={username}
+            role={role}
             focusWorkerId={focusWorkerId}
             onConsumedFocus={consumeFocus}
           />
@@ -79,7 +81,7 @@ export function AdminDashboard({ username }: { username: string }) {
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>📊</Text>,
         }}
       >
-        {() => <AdminReportsTab username={username} onOpenWorkerOnMap={handleOpenWorkerOnMap} />}
+        {() => <AdminReportsTab username={username} role={role} onOpenWorkerOnMap={handleOpenWorkerOnMap} />}
       </Tab.Screen>
       <Tab.Screen
         name="Team"
@@ -88,7 +90,7 @@ export function AdminDashboard({ username }: { username: string }) {
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>👥</Text>,
         }}
       >
-        {() => <AdminTeamTab username={username} />}
+        {() => <AdminTeamTab username={username} role={role} />}
       </Tab.Screen>
       <Tab.Screen
         name="Center"
@@ -97,7 +99,7 @@ export function AdminDashboard({ username }: { username: string }) {
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>🏢</Text>,
         }}
       >
-        {() => <AdminCenterTab username={username} />}
+        {() => <AdminCenterTab username={username} role={role} />}
       </Tab.Screen>
     </Tab.Navigator>
   );

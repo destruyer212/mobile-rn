@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,7 +11,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { can } from '../../auth/permissions';
+import type { UserRole } from '../../auth/userRole';
 import type { ManagedWorker } from '../../domain/managedWorker';
 import { managedWorkerDisplayName } from '../../domain/managedWorker';
 import { WorkerAdminRepository } from '../../data/workerAdminRepository';
@@ -21,11 +25,13 @@ const repo = new WorkerAdminRepository();
 
 type Props = {
   username: string;
+  role: UserRole;
 };
 
 type Filter = 'all' | 'active' | 'suspended';
 
-export function AdminTeamTab({ username: _username }: Props) {
+export function AdminTeamTab({ username: _username, role }: Props) {
+  const insets = useSafeAreaInsets();
   const [workers, setWorkers] = useState<ManagedWorker[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -34,6 +40,7 @@ export function AdminTeamTab({ username: _username }: Props) {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ManagedWorker | null>(null);
+  const canManageTeam = can(role, 'team.manage');
 
   const load = useCallback(async () => {
     if (!canUseSupabaseAuth()) return;
@@ -72,16 +79,19 @@ export function AdminTeamTab({ username: _username }: Props) {
   const suspendedCount = workers.filter((w) => w.suspended).length;
 
   function openCreate() {
+    if (!canManageTeam) return;
     setEditing(null);
     setModalOpen(true);
   }
 
   function openEdit(w: ManagedWorker) {
+    if (!canManageTeam) return;
     setEditing(w);
     setModalOpen(true);
   }
 
   async function toggleSuspend(w: ManagedWorker) {
+    if (!canManageTeam) return;
     try {
       await repo.setSuspended(w.id, !w.suspended);
       await load();
@@ -91,6 +101,7 @@ export function AdminTeamTab({ username: _username }: Props) {
   }
 
   async function remove(w: ManagedWorker) {
+    if (!canManageTeam) return;
     Alert.alert(
       'Eliminar trabajador',
       `Se eliminara la cuenta de ${managedWorkerDisplayName(w)} (${w.email}). Esta accion no se puede deshacer.`,
@@ -121,7 +132,15 @@ export function AdminTeamTab({ username: _username }: Props) {
   }
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[
+        styles.root,
+        { paddingTop: Math.max(14, insets.top + 10), paddingBottom: Math.max(12, insets.bottom + 8) },
+      ]}
+    >
+      <View style={styles.sectionTag}>
+        <Text style={styles.sectionTagText}>Administracion de personal</Text>
+      </View>
       <View style={styles.top}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Gestion de equipo</Text>
@@ -131,22 +150,32 @@ export function AdminTeamTab({ username: _username }: Props) {
           <Pressable onPress={() => void load()} style={styles.refreshBtn}>
             <Text style={styles.refreshBtnText}>Actualizar</Text>
           </Pressable>
-          <Pressable onPress={openCreate} style={styles.createBtn}>
+          <Pressable
+            onPress={openCreate}
+            style={[styles.createBtn, !canManageTeam && styles.btnDisabled]}
+            disabled={!canManageTeam}
+          >
             <Text style={styles.createBtnText}>+ Nuevo</Text>
           </Pressable>
         </View>
       </View>
+      {!canManageTeam ? (
+        <Text style={styles.permissionHint}>Tu rol no tiene permisos de gestion de personal.</Text>
+      ) : null}
 
       <View style={styles.kpiRow}>
         <View style={styles.kpiCard}>
+          <MaterialCommunityIcons name="account-group" size={14} color="#0F172A" />
           <Text style={styles.kpiLabel}>Total</Text>
           <Text style={styles.kpiValue}>{workers.length}</Text>
         </View>
         <View style={styles.kpiCard}>
+          <MaterialCommunityIcons name="account-check" size={14} color="#0F172A" />
           <Text style={styles.kpiLabel}>Activos</Text>
           <Text style={styles.kpiValue}>{activeCount}</Text>
         </View>
         <View style={styles.kpiCard}>
+          <MaterialCommunityIcons name="account-cancel" size={14} color="#0F172A" />
           <Text style={styles.kpiLabel}>Suspendidos</Text>
           <Text style={styles.kpiValue}>{suspendedCount}</Text>
         </View>
@@ -341,14 +370,40 @@ function Field(props: {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: AppColors.surface, padding: 16 },
+  root: { flex: 1, backgroundColor: '#F1F5F9', paddingHorizontal: 16 },
+  sectionTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,194,168,0.16)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: 10,
+  },
+  sectionTagText: {
+    color: AppColors.navy,
+    fontWeight: '800',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
   muted: { color: '#6B7280', textAlign: 'center' },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  top: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 18, fontWeight: '900', color: AppColors.navy, flex: 1 },
   subtitle: { marginTop: 2, color: '#6B7280', fontSize: 12, lineHeight: 16 },
   createBtn: { backgroundColor: AppColors.accent, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  btnDisabled: { opacity: 0.45 },
   createBtnText: { fontWeight: '900', color: AppColors.navy },
   refreshBtn: { backgroundColor: '#EEF2F7', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
   refreshBtnText: { fontWeight: '900', color: AppColors.navy, fontSize: 12 },
@@ -357,12 +412,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     padding: 10,
+    alignItems: 'center',
   },
-  kpiLabel: { color: '#6B7280', fontWeight: '800', fontSize: 11, textTransform: 'uppercase' },
-  kpiValue: { marginTop: 6, color: AppColors.navy, fontWeight: '900', fontSize: 18 },
+  kpiLabel: { marginTop: 4, color: '#6B7280', fontWeight: '800', fontSize: 10, textTransform: 'uppercase' },
+  kpiValue: { marginTop: 4, color: AppColors.navy, fontWeight: '900', fontSize: 18 },
   search: {
     marginTop: 12,
     borderWidth: 1,
@@ -378,6 +434,7 @@ const styles = StyleSheet.create({
   chipText: { fontWeight: '800', color: '#6B7280', fontSize: 12 },
   chipTextOn: { color: AppColors.navy },
   err: { marginTop: 12, color: '#B91C1C' },
+  permissionHint: { marginTop: 10, color: '#92400E', fontSize: 12, fontWeight: '700' },
   card: {
     marginTop: 12,
     padding: 12,

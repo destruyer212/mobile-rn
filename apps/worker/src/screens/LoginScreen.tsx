@@ -17,12 +17,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import {
   friendlyAuthErrorMessage,
-  loadSavedCredentials,
   saveCredentials,
   signInWithPassword,
 } from '@fleet/shared-auth';
+import { usePersistedCredentials } from '@fleet/shared-hooks';
 import { canUseSupabaseAuth } from '@fleet/shared-lib';
-import { AppColors } from '@fleet/shared-ui';
+import { AppColors, ErrorBanner, LoadingBlock } from '@fleet/shared-ui';
 
 import type { WorkerStackParamList } from '../navigation/types';
 
@@ -41,14 +41,14 @@ export function LoginScreen({ navigation }: Props) {
   const [banner, setBanner] = useState<string | null>(null);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
 
+  const { credentials: savedCreds, loading: credsLoading, error: credsError } = usePersistedCredentials();
+
   useEffect(() => {
-    void (async () => {
-      const saved = await loadSavedCredentials();
-      setRememberCredentials(saved.remember);
-      setEmail(saved.email);
-      setPassword(saved.password);
-    })();
-  }, []);
+    if (!savedCreds || credsLoading) return;
+    setRememberCredentials(savedCreds.remember);
+    setEmail(savedCreds.email);
+    setPassword(savedCreds.password);
+  }, [savedCreds, credsLoading]);
 
   async function submit() {
     setAttemptedSubmit(true);
@@ -121,6 +121,9 @@ export function LoginScreen({ navigation }: Props) {
           </View>
           <Text style={styles.title}>Fleet Control Campo</Text>
           <Text style={styles.subtitle}>Comparte tu ubicacion con el equipo de supervision</Text>
+
+          {credsLoading ? <LoadingBlock message="Recuperando credenciales guardadas..." variant="compact" /> : null}
+          {credsError ? <ErrorBanner message={credsError} /> : null}
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Acceso trabajador</Text>

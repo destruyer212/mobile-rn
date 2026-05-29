@@ -31,7 +31,7 @@ import { managedWorkerDisplayName } from '@fleet/shared-domain';
 import type { OperationalBase } from '@fleet/shared-domain';
 import type { WorkerLocation } from '@fleet/shared-domain';
 import { useWorkerLocations } from '@fleet/shared-hooks';
-import { AppColors } from '@fleet/shared-ui';
+import { AppColors, EmptyState, ErrorBanner, LoadingBlock } from '@fleet/shared-ui';
 import { formatTimeHms } from '@fleet/shared-ui';
 import { displayWorkerName, isWorkerOnline } from '@fleet/shared-ui';
 
@@ -108,7 +108,7 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
   const crosshairAnim = useRef(new Animated.Value(0)).current;
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
-  const { workers, error, refresh } = useWorkerLocations(true);
+  const { workers, error, loading, isEmpty, refresh } = useWorkerLocations(true);
   const [lastKnownLocationByWorkerId, setLastKnownLocationByWorkerId] = useState<Record<string, WorkerLocation>>({});
   const [firstNameById, setFirstNameById] = useState<Record<string, string>>({});
   const [phoneById, setPhoneById] = useState<Record<string, string>>({});
@@ -1149,7 +1149,14 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
             {replayIndex + 1}/{Math.max(1, replayPoints.length)}
           </Text>
         ) : null}
-        {error ? <Text style={styles.err}>{error}</Text> : null}
+        {loading ? <LoadingBlock message="Cargando ubicaciones desde Supabase..." variant="compact" /> : null}
+        {error ? <ErrorBanner message={error} /> : null}
+        {isEmpty && !loading && !error ? (
+          <EmptyState
+            title="Sin unidades en el mapa"
+            description="Cuando un trabajador active el seguimiento, su ubicacion aparecera aqui en tiempo real."
+          />
+        ) : null}
         {workersMissingLocation.length > 0 ? (
           <Text style={styles.warningText}>
             {workersMissingLocation.length} trabajador(es) activo(s) sin ubicacion GPS reportada. Abre la app de trabajador y activa
@@ -1161,7 +1168,13 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
             data={visibleWorkers}
             keyExtractor={(item) => item.userId}
             contentContainerStyle={{ paddingBottom: 12 }}
-            ListEmptyComponent={<Text style={styles.empty}>Aun no hay ubicaciones reportadas.</Text>}
+            ListEmptyComponent={
+              loading ? (
+                <LoadingBlock message="Cargando lista..." variant="compact" />
+              ) : (
+                <EmptyState title="Lista vacia" description="No hay ubicaciones que coincidan con el filtro." />
+              )
+            }
             renderItem={({ item }) => {
               const online = isWorkerOnline(item);
               const name = displayWorkerName(item, firstNameById);

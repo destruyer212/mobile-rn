@@ -26,7 +26,7 @@ import type { WorkerStackParamList } from '../navigation/types';
 import { getPendingTrackingQueueCount, startTracking, stopTracking } from '@fleet/shared-services';
 import { isTrackingDesired, setTrackingDesired } from '@fleet/shared-services';
 import { BACKGROUND_LOCATION_TASK } from '@fleet/shared-tracking-worker';
-import { AppColors } from '@fleet/shared-ui';
+import { AppColors, ErrorBanner, LoadingBlock } from '@fleet/shared-ui';
 
 type Props = NativeStackScreenProps<WorkerStackParamList, 'WorkerHome'>;
 
@@ -44,6 +44,8 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
   const [backgroundActive, setBackgroundActive] = useState(false);
   const [backgroundPermissionGranted, setBackgroundPermissionGranted] = useState(false);
   const [pendingQueueCount, setPendingQueueCount] = useState(0);
+  const [serverSyncLoading, setServerSyncLoading] = useState(false);
+  const [serverSyncError, setServerSyncError] = useState<string | null>(null);
   const appOpenNotifiedThisSession = useRef(false);
   const lastAppOpenPushUtc = useRef<Date | null>(null);
   const stationaryAnchor = useRef<{ lat: number; lng: number } | null>(null);
@@ -86,6 +88,33 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
       lastAppOpenPushUtc.current = new Date();
     }
   }, [workerLabel]);
+
+  /** Consumo API (Supabase): leer última ubicación reportada del trabajador en servidor. */
+  useEffect(() => {
+    if (!canUseSupabaseAuth()) return;
+    let cancelled = false;
+    void (async () => {
+      setServerSyncLoading(true);
+      setServerSyncError(null);
+      try {
+        const list = await repo.fetchWorkerLocations();
+        const me = list.find((w) => w.userId === userId);
+        if (cancelled) return;
+        if (me) {
+          setLastLat(me.latitude);
+          setLastLng(me.longitude);
+          setLastSentAt(me.updatedAt);
+        }
+      } catch (e) {
+        if (!cancelled) setServerSyncError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setServerSyncLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     void (async () => {
@@ -324,10 +353,17 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitleSmall}>Ultima posicion</Text>
+          <Text style={styles.cardTitleSmall}>Ultima posicion (servidor)</Text>
+          {serverSyncLoading ? (
+            <LoadingBlock message="Consultando ubicacion en Supabase..." variant="compact" />
+          ) : null}
+          {serverSyncError ? <ErrorBanner message={serverSyncError} /> : null}
           <InfoRow label="Latitud" value={lat} />
           <InfoRow label="Longitud" value={lng} />
           <InfoRow label="Ultimo envio" value={sentAt} />
+          {!serverSyncLoading && !serverSyncError && lastLat == null ? (
+            <Text style={styles.hintEmpty}>Aun no hay ubicacion guardada en el servidor.</Text>
+          ) : null}
           {statusMessage ? <Text style={styles.err}>{statusMessage}</Text> : null}
         </View>
       </ScrollView>
@@ -404,6 +440,7 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 11, fontWeight: '800', color: '#6B7280', letterSpacing: 0.3, textTransform: 'uppercase' },
   infoValue: { marginTop: 4, fontSize: 14, fontWeight: '800', color: AppColors.navy },
   err: { marginTop: 12, color: '#B91C1C', fontSize: 13, fontWeight: '600' },
+  hintEmpty: { marginTop: 8, color: '#6B7280', fontSize: 12, fontStyle: 'italic' },
   permissionWarn: { marginTop: 8, color: '#92400E', fontSize: 12, fontWeight: '700' },
   offlineQueueInfo: { marginTop: 8, color: '#1D4ED8', fontSize: 12, fontWeight: '700' },
 });

@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
+    "@fleet/shared-auth": "file:../shared-auth",
     "@fleet/shared-data": "file:../shared-data",
     "@fleet/shared-domain": "file:../shared-domain",
     "@fleet/shared-lib": "file:../shared-lib"

@@ -4,6 +4,90 @@ Aplicación móvil **React Native + Expo** para flota en campo: administración,
 
 ---
 
+## Objetivo del proyecto
+
+Permitir que **trabajadores en ruta** compartan su ubicación GPS con **administradores** que supervisan la operación en un mapa en tiempo real, con autenticación segura, persistencia local de credenciales y manejo claro de estados de carga y error. El avance APF2 demuestra hooks en componentes funcionales, consumo de API (Supabase), AsyncStorage e integración coherente entre módulos.
+
+---
+
+## APF2 — Documentación técnica (rúbrica Proyecto Final 02)
+
+| Entrega rúbrica | Dónde está en el repo |
+|-----------------|----------------------|
+| **Hooks** (`useState`, `useEffect`, ciclo de vida) | `packages/shared-hooks/`, pantallas en `apps/worker` y `apps/admin` |
+| **Consumo de API + renderizado** | Supabase vía `packages/shared-data`, mapa en `AdminOperationsTab`, sync en `WorkerHomeScreen` |
+| **Loading, error, estados vacíos** | `packages/shared-ui/src/AsyncStateViews.tsx` |
+| **AsyncStorage** | `packages/shared-auth/src/credentialsStorage.ts`, sesión en `shared-lib/supabase.ts`, cola GPS offline |
+| **Integración + evidencias** | Este README + **[docs/RUBRICA-APF2.md](./docs/RUBRICA-APF2.md)** (matriz Excelente y checklist de capturas) |
+
+**Guía completa para evaluación:** [docs/RUBRICA-APF2.md](./docs/RUBRICA-APF2.md)
+
+### Arquitectura básica
+
+```text
+┌─────────────────┐     ┌─────────────────┐
+│  apps/worker    │     │  apps/admin     │
+│  (campo, GPS)   │     │  (mapa, tabs)   │
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         └───────────┬───────────┘
+                     ▼
+         ┌───────────────────────┐
+         │  packages/shared-*    │
+         │  auth · data · hooks  │
+         │  ui · tracking-worker │
+         └───────────┬───────────┘
+                     ▼
+         ┌───────────────────────┐
+         │  Supabase (API)       │
+         │  Auth · Postgres · RT │
+         └───────────────────────┘
+```
+
+### Tecnologías usadas
+
+| Capa | Tecnología |
+|------|------------|
+| UI móvil | React Native 0.81, Expo ~54, React 19 |
+| Lenguaje | TypeScript (estricto) |
+| Navegación | React Navigation (Native Stack, Bottom Tabs) |
+| Backend / API | Supabase (Auth, PostgREST, Realtime) |
+| Persistencia local | `@react-native-async-storage/async-storage` |
+| Mapas (admin) | `react-native-maps` + Google Maps Android |
+| Ubicación (worker) | `expo-location`, `expo-task-manager` |
+| Monorepo | npm workspaces |
+
+### Instrucciones de ejecución (evaluador)
+
+```bash
+git clone https://github.com/destruyer212/mobile-rn.git
+cd mobile-rn
+npm install
+cp .env.example .env   # opcional: EXPO_PUBLIC_SUPABASE_* y GOOGLE_MAPS para admin
+
+# App trabajador (terminal 1)
+npm run start:worker
+
+# App administrador (terminal 2)
+npm run start:admin
+
+# Verificación TypeScript
+npm run typecheck
+```
+
+Escanear el QR con **Expo Go** o pulsar `a` para emulador Android. Usar cuenta **worker** en la app campo y cuenta **admin** en la app supervisión.
+
+### Evidencias sugeridas (capturas para informe)
+
+1. Terminal con `npm run start:worker` / `start:admin` y Metro activo.  
+2. Login con mensaje “Recuperando credenciales guardadas…” (AsyncStorage).  
+3. Worker: tarjeta “Última posición (servidor)” con lat/lng.  
+4. Admin: mapa con marcadores o estados “Cargando…” / “Sin unidades”.  
+5. Código: `useWorkerLocations.ts` o `AsyncStateViews.tsx`.  
+6. Supabase: filas en tabla `worker_locations`.
+
+---
+
 ## Documentación de arquitectura
 
 - **[Dos apps (worker + admin), monorepo y RLS](./docs/ARCHITECTURE-two-apps.md)** — plan completo: carpetas, matriz de código, auth, 5 fases de migración, checklist Supabase y builds.
@@ -33,6 +117,9 @@ Variables: `.env.example` → `.env` en la raíz.
 
 ## Contenido
 
+- [Objetivo del proyecto](#objetivo-del-proyecto)
+- [APF2 — Documentación técnica](#apf2--documentación-técnica-rúbrica-proyecto-final-02)
+- [Documentación de arquitectura](#documentación-de-arquitectura)
 - [Requisitos](#requisitos)
 - [Stack técnico](#stack-técnico)
 - [Estructura del repositorio](#estructura-del-repositorio)
@@ -240,18 +327,35 @@ En rutas con **espacios** en el nombre de carpeta, a veces falla la cadena de bu
 
 ## Evidencia académica / rúbricas
 
-Puntos frecuentes y **dónde** capturar en este repo:
+### APF2 — Proyecto Final 02 (documento completo)
+
+Guía detallada con matriz **Excelente**, archivos exactos y checklist de capturas:
+
+**[docs/RUBRICA-APF2.md](./docs/RUBRICA-APF2.md)**
+
+### Resumen rápido APF2
+
+| Criterio | Nivel objetivo | Evidencia principal |
+|----------|----------------|---------------------|
+| **Hooks** (`useState`, `useEffect`, ciclo de vida) | Excelente | `useWorkerLocations`, `usePersistedCredentials`, `useAsyncData`, `WorkerHomeScreen` |
+| **Consumo API + renderizado** | Excelente | Supabase: `LocationRepository`, mapa admin, sync GPS worker |
+| **Loading / error / vacío** | Excelente | `packages/shared-ui/src/AsyncStateViews.tsx` + hooks con `loading` |
+| **AsyncStorage** | Excelente | `credentialsStorage`, sesión Supabase, cola offline GPS |
+| **Integración + README** | Excelente | Monorepo worker/admin + esta documentación |
+
+### Otras evidencias (navegación / UI)
 
 | Rúbrica / evidencia | Archivo o comando |
 |---------------------|-------------------|
-| `package.json` y dependencias | `package.json`, salida de `npm install` |
-| Estructura de carpetas | panel Explorer en VS Code / `tree` |
-| Ejecución (`npx expo start`, Metro) | terminal con Expo dev tools |
-| App en emulador o físico | captura de la app |
-| **Native Stack** | `apps/admin/src/navigation/AdminRootNavigator.tsx` o `apps/legacy/src/navigation/RootNavigator.tsx` |
+| `package.json` y workspaces | `package.json` raíz, `apps/*/package.json` |
+| Estructura monorepo | `apps/`, `packages/`, `docs/` |
+| Ejecución | `npm run start:worker`, `npm run start:admin` |
+| **Native Stack** | `apps/admin/src/navigation/AdminRootNavigator.tsx` |
 | **Bottom tabs** | `apps/admin/src/screens/admin/AdminDashboard.tsx` |
-| **Componente con `props` (reutilizable)** | `packages/shared-ui-admin/src/map/TopDownMotoMarker.tsx` |
-| APK o EAS | `app-release.apk` en carpeta `outputs` o pantalla de EAS con build exitoso |
+| **Componente con props** | `packages/shared-ui/src/AsyncStateViews.tsx`, `TopDownMotoMarker.tsx` |
+| **Hooks personalizados** | `packages/shared-hooks/src/` |
+| **API (Supabase)** | `packages/shared-data/src/locationRepository.ts` |
+| APK EAS | `npm run build:worker:apk`, `npm run build:admin:apk` |
 
 ---
 

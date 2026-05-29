@@ -1,0 +1,47 @@
+{
+  "name": "@fleet/app-worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit",
+    "build:apk": "eas build -p android --profile worker-preview",
+    "build:aab": "eas build -p android --profile worker-production"
+  },
+  "dependencies": {
+    "@fleet/shared-auth": "file:../../packages/shared-auth",
+    "@fleet/shared-config": "file:../../packages/shared-config",
+    "@fleet/shared-core": "file:../../packages/shared-core",
+    "@fleet/shared-data": "file:../../packages/shared-data",
+    "@fleet/shared-domain": "file:../../packages/shared-domain",
+    "@fleet/shared-lib": "file:../../packages/shared-lib",
+    "@fleet/shared-services": "file:../../packages/shared-services",
+    "@fleet/shared-tracking-worker": "file:../../packages/shared-tracking-worker",
+    "@fleet/shared-ui": "file:../../packages/shared-ui",
+    "@expo/vector-icons": "^15.0.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/native": "^7.2.2",
+    "@react-navigation/native-stack": "^7.14.11",
+    "@supabase/supabase-js": "^2.103.3",
+    "expo": "~54.0.33",
+    "expo-constants": "~18.0.13",
+    "expo-linear-gradient": "~15.0.8",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.16",
+    "expo-status-bar": "~3.0.9",
+    "expo-task-manager": "~14.0.9",
+    "expo-updates": "~29.0.16",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-url-polyfill": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
+  }
+}

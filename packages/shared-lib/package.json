@@ -1,0 +1,14 @@
+{
+  "name": "@fleet/shared-lib",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@fleet/shared-config": "file:../shared-config",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.103.3",
+    "react-native-url-polyfill": "^3.0.0"
+  }
+}
+

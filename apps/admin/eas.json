@@ -1,0 +1,26 @@
+{
+  "cli": {
+    "version": ">= 10.0.0"
+  },
+  "build": {
+    "admin-preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "admin",
+        "EXPO_PUBLIC_APP_ROLE": "admin"
+      }
+    },
+    "admin-production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_VARIANT": "admin",
+        "EXPO_PUBLIC_APP_ROLE": "admin"
+      }
+    }
+  }
+}

@@ -1,4 +1,6 @@
 {
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
   "problems.decorations.enabled": false,
   "java.import.exclusions": [
     "**/node_modules/**",

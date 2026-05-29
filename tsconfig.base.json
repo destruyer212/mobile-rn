@@ -1,0 +1,31 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@fleet/shared-config": ["packages/shared-config/src/index.ts"],
+      "@fleet/shared-config/*": ["packages/shared-config/src/*"],
+      "@fleet/shared-domain": ["packages/shared-domain/src/index.ts"],
+      "@fleet/shared-domain/*": ["packages/shared-domain/src/*"],
+      "@fleet/shared-data": ["packages/shared-data/src/index.ts"],
+      "@fleet/shared-data/*": ["packages/shared-data/src/*"],
+      "@fleet/shared-auth": ["packages/shared-auth/src/index.ts"],
+      "@fleet/shared-auth/*": ["packages/shared-auth/src/*"],
+      "@fleet/shared-lib": ["packages/shared-lib/src/index.ts"],
+      "@fleet/shared-lib/*": ["packages/shared-lib/src/*"],
+      "@fleet/shared-core": ["packages/shared-core/src/index.ts"],
+      "@fleet/shared-core/*": ["packages/shared-core/src/*"],
+      "@fleet/shared-services": ["packages/shared-services/src/index.ts"],
+      "@fleet/shared-services/*": ["packages/shared-services/src/*"],
+      "@fleet/shared-hooks": ["packages/shared-hooks/src/index.ts"],
+      "@fleet/shared-hooks/*": ["packages/shared-hooks/src/*"],
+      "@fleet/shared-ui": ["packages/shared-ui/src/index.ts"],
+      "@fleet/shared-ui/*": ["packages/shared-ui/src/*"],
+      "@fleet/shared-tracking-worker": ["packages/shared-tracking-worker/src/index.ts"],
+      "@fleet/shared-tracking-worker/*": ["packages/shared-tracking-worker/src/*"],
+      "@fleet/shared-ui-admin": ["packages/shared-ui-admin/src/index.ts"],
+      "@fleet/shared-ui-admin/*": ["packages/shared-ui-admin/src/*"]
+    }
+  }
+}

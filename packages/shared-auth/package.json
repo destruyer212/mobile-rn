@@ -1,0 +1,13 @@
+{
+  "name": "@fleet/shared-auth",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@fleet/shared-config": "file:../shared-config",
+    "@fleet/shared-lib": "file:../shared-lib",
+    "@react-native-async-storage/async-storage": "2.2.0"
+  }
+}
+

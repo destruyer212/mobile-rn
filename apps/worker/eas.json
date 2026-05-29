@@ -1,0 +1,26 @@
+{
+  "cli": {
+    "version": ">= 10.0.0"
+  },
+  "build": {
+    "worker-preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "worker",
+        "EXPO_PUBLIC_APP_ROLE": "worker"
+      }
+    },
+    "worker-production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_VARIANT": "worker",
+        "EXPO_PUBLIC_APP_ROLE": "worker"
+      }
+    }
+  }
+}

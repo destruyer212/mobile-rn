@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "version": ">= 10.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "legacy",
+        "EXPO_PUBLIC_APP_ROLE": "legacy"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "APP_VARIANT": "legacy",
+        "EXPO_PUBLIC_APP_ROLE": "legacy"
+      }
+    }
+  }
+}

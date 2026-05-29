@@ -4,6 +4,33 @@ Aplicación móvil **React Native + Expo** para flota en campo: administración,
 
 ---
 
+## Documentación de arquitectura
+
+- **[Dos apps (worker + admin), monorepo y RLS](./docs/ARCHITECTURE-two-apps.md)** — plan completo: carpetas, matriz de código, auth, 5 fases de migración, checklist Supabase y builds.
+
+### Estado del monorepo
+
+| Fase | Estado |
+|------|--------|
+| **1** Preparación (workspaces, `tsconfig.base`, `.env.example`) | Hecha |
+| **2** Extraer `packages/shared-*` desde `src/` | Hecha |
+| **3** App `apps/worker` (solo campo) | Hecha |
+| **4** App `apps/admin` (solo supervisión) | Hecha |
+| **5** RLS, pruebas, legacy archivado | Hecha (SQL y pruebas manuales pendientes en tu Supabase) |
+
+**Producción — dos apps instalables:**
+
+| App | Comando dev | Package Android | Build APK |
+|-----|-------------|-----------------|-----------|
+| Campo (worker) | `npm run start:worker` | `com.fleetcontrol.worker` | `npm run build:worker:apk` |
+| Admin | `npm run start:admin` | `com.fleetcontrol.admin` | `npm run build:admin:apk` |
+
+Documentación: [apps/worker/README.md](./apps/worker/README.md), [apps/admin/README.md](./apps/admin/README.md).  
+Código compartido: **`packages/`** (`@fleet/shared-*`).  
+RLS: [`supabase/README.md`](./supabase/README.md) · Prueba manual: [`docs/MANUAL-TEST-phase5.md`](./docs/MANUAL-TEST-phase5.md).  
+Monolito antiguo (deprecado): `npm run start:legacy` → [apps/legacy/README.md](./apps/legacy/README.md).  
+Variables: `.env.example` → `.env` en la raíz.
+
 ## Contenido
 
 - [Requisitos](#requisitos)
@@ -29,7 +56,7 @@ Aplicación móvil **React Native + Expo** para flota en campo: administración,
 | Cuenta **Supabase** | base de datos y autenticación |
 | Clave **Maps SDK for Android** (Google Cloud) | mapas en el panel admin |
 
-> El proyecto declara `package: com.fleetcontrol.mobile` en `app.json`; debe ser coherente con el registro en Google Cloud (OAuth / firma) si aplicas servicios de Google.
+> Maps en admin: restringe la API key por package `com.fleetcontrol.admin`. Legacy: `com.fleetcontrol.mobile`.
 
 ---
 
@@ -41,13 +68,8 @@ Aplicación móvil **React Native + Expo** para flota en campo: administración,
 - **react-native-maps** (Google Maps en Android) · **expo-location** + tarea en segundo plano
 - **expo-notifications** (push y locales) · **expo-print** / **expo-sharing** (exportes en admin)
 
-El punto de entrada carga el registro de tareas de ubicación en segundo plano:
-
-```1:2:index.ts
-import './src/tasks/backgroundLocationTask';
-```
-
-`App` inicializa notificaciones push y envuelve la app en `SafeAreaProvider` y `RootNavigator` (`App.tsx`).
+La app **worker** registra la tarea GPS en `apps/worker/index.ts` (`@fleet/shared-tracking-worker`).  
+La app **admin** solo consume ubicaciones en tiempo real (sin tarea en segundo plano).
 
 ---
 
@@ -55,26 +77,14 @@ import './src/tasks/backgroundLocationTask';
 
 ```text
 mobile-rn/
-├── App.tsx                 # Raíz: StatusBar, push init, RootNavigator
-├── app.json                # Nombre, Android, permisos, Google Maps, plugins Expo
-├── eas.json                # Perfiles EAS (APK / AAB)
-├── index.ts                # Entrada: background task + registerRootComponent
-├── src/
-│   ├── auth/               # Usuario, permisos, repositorio de credenciales
-│   ├── components/         # Componentes reutilizables (p. ej. mapa)
-│   ├── config/              # supabaseConfig (env públicas EXPO_PUBLIC_*)
-│   ├── core/                # permisos, notificaciones locales, helpers
-│   ├── data/                # repositorios Supabase (ubicaciones, equipo, base)
-│   ├── domain/              # tipos de dominio (trabajador, ubicación, base)
-│   ├── hooks/               # hooks (p. ej. useWorkerLocations)
-│   ├── lib/                 # cliente Supabase
-│   ├── navigation/         # Stack raíz, tipos de navegación
-│   ├── screens/             # Login, worker, admin (pestañas, operaciones, etc.)
-│   ├── services/            # tracking, preferencias
-│   ├── tasks/              # backgroundLocationTask
-│   ├── theme/               # colores
-│   └── utils/              # formateo, UI de trabajador
-└── android/ (generado)     # Tras `expo prebuild` o al abrir con Android Studio
+├── apps/
+│   ├── worker/             # App campo (com.fleetcontrol.worker)
+│   ├── admin/              # App supervisión (com.fleetcontrol.admin)
+│   └── legacy/             # Monolito deprecado (com.fleetcontrol.mobile)
+├── packages/
+│   └── shared-*/           # Auth, data, UI, tracking, etc.
+├── supabase/migrations/    # RLS de referencia (Fase 5)
+└── docs/                   # Arquitectura y pruebas manuales
 ```
 
 ---
@@ -83,15 +93,13 @@ mobile-rn/
 
 ### Native Stack (raíz)
 
-Definido en `src/navigation/RootNavigator.tsx` con `createNativeStackNavigator`:
-
-- **Login** → inicio de sesión por rol
-- **WorkerHome** / **WorkerDiagnostics** → flujo trabajador
-- **AdminHome** → panel de administración
+- **Worker:** `apps/worker` — Login → WorkerHome → WorkerDiagnostics  
+- **Admin:** `apps/admin` — Login (solo admin) → AdminHome (tabs)  
+- **Legacy:** `apps/legacy` — stack combinado (deprecado)
 
 ### Bottom tabs (admin)
 
-Dentro del flujo admin, `src/screens/admin/AdminDashboard.tsx` define **cuatro tabs**:
+En admin, `AdminDashboard.tsx` define **cuatro tabs**:
 
 | Tab | Contenido orientativo |
 |-----|------------------------|
@@ -125,8 +133,8 @@ flowchart TB
 
 ### Supabase (URL y clave)
 
-Lógica en `src/config/supabaseConfig.ts` y cliente en `src/lib/supabase.ts`.  
-Puedes sobreescribir con variables de entorno públicas de Expo (nunca subas claves de servicio al repo de estudiantes; aquí se documentan **solo** las de cliente público):
+Lógica en `packages/shared-config` y cliente en `packages/shared-lib`.  
+Variables públicas de Expo:
 
 - `EXPO_PUBLIC_SUPABASE_URL`
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY` o `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
@@ -135,13 +143,13 @@ Crea un archivo `.env` en la raíz o define las variables en el entorno antes de
 
 ### Google Maps (Android)
 
-En `app.json` → `expo.android.config.googleMaps.apiKey` debe ser una clave con **Maps SDK for Android** habilitado y, si aplica, restricción por **nombre del paquete** `com.fleetcontrol.mobile`.
+En `apps/admin/app.config.ts` → `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` con **Maps SDK for Android** y restricción por package `com.fleetcontrol.admin`.
 
 > En producción conviene rotar claves si se filtran y restringirlas en Google Cloud Console; no compartas la clave en capturas de entrega.
 
 ### Notificaciones y ubicación
 
-Permisos y textos de uso están declarados vía `expo.plugins` (expo-location, expo-notifications) en `app.json`. Ajusta los textos a lo que pida tu **Política de privacidad**.
+Permisos en cada `app.config.ts` (worker: ubicación en segundo plano; admin: notificaciones). Ajusta textos a tu política de privacidad.
 
 ---
 
@@ -153,10 +161,12 @@ En la raíz del proyecto:
 npm install
 ```
 
-Iniciar el bundler de Metro / Expo:
+Iniciar una app:
 
 ```bash
-npx expo start
+npm run start:worker
+# o
+npm run start:admin
 ```
 
 - Escanea el **QR** con **Expo Go** en un dispositivo físico, o  
@@ -175,33 +185,31 @@ npx expo prebuild --platform android
 
 ## Build Android (APK / AAB)
 
-### Local (Gradle) — genera `app-release.apk`
-
-Con Android SDK y `JAVA_HOME` correctos, desde el proyecto:
+### App Worker (campo)
 
 ```bash
-cd android
-./gradlew assembleRelease   # En Windows: .\gradlew assembleRelease
+cd apps/worker
+eas build -p android --profile worker-preview
 ```
 
-Salida típica:
+Desde la raíz: `npm run build:worker:apk`
 
-`android/app/build/outputs/apk/release/app-release.apk`
-
-### Nube — EAS (recomendado en equipos con rutas con espacios o fallos de CMake)
+### App Admin (supervisión)
 
 ```bash
-npx eas login
-npx eas build -p android --profile preview
+cd apps/admin
+eas build -p android --profile admin-preview
 ```
 
-Configuración de perfiles: `eas.json` (`preview` → APK, `production` → AAB).
+Desde la raíz: `npm run build:admin:apk`
 
-También puedes usar:
+Define en EAS o `.env`: `EXPO_PUBLIC_SUPABASE_*`, y en admin `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`.
+
+### Legacy (monolito, no recomendado)
 
 ```bash
-npm run build:apk
-npm run build:aab
+cd apps/legacy
+eas build -p android --profile preview
 ```
 
 ---
@@ -210,12 +218,12 @@ npm run build:aab
 
 | Script | Descripción |
 |--------|-------------|
-| `npm start` | `expo start` |
-| `npm run android` / `run:ios` / `web` | Ejecución en plataforma |
-| `npm run prebuild:android` | `expo prebuild` solo Android |
-| `npm run run:android` | `expo run:android` |
-| `npm run build:apk` | EAS, perfil preview (APK) |
-| `npm run build:aab` | EAS, producción (AAB) |
+| `npm run start:worker` | App campo (`apps/worker`) |
+| `npm run start:admin` | App admin (`apps/admin`) |
+| `npm run start:legacy` | Monolito deprecado (`apps/legacy`) |
+| `npm run typecheck` | TypeScript en todos los workspaces |
+| `npm run build:worker:apk` | EAS APK worker |
+| `npm run build:admin:apk` | EAS APK admin |
 
 ---
 
@@ -240,9 +248,9 @@ Puntos frecuentes y **dónde** capturar en este repo:
 | Estructura de carpetas | panel Explorer en VS Code / `tree` |
 | Ejecución (`npx expo start`, Metro) | terminal con Expo dev tools |
 | App en emulador o físico | captura de la app |
-| **Native Stack** | `src/navigation/RootNavigator.tsx` |
-| **Bottom tabs** | `src/screens/admin/AdminDashboard.tsx` |
-| **Componente con `props` (reutilizable)** | `src/components/map/TopDownMotoMarker.tsx` (`type Props` + `export function …`) |
+| **Native Stack** | `apps/admin/src/navigation/AdminRootNavigator.tsx` o `apps/legacy/src/navigation/RootNavigator.tsx` |
+| **Bottom tabs** | `apps/admin/src/screens/admin/AdminDashboard.tsx` |
+| **Componente con `props` (reutilizable)** | `packages/shared-ui-admin/src/map/TopDownMotoMarker.tsx` |
 | APK o EAS | `app-release.apk` en carpeta `outputs` o pantalla de EAS con build exitoso |
 
 ---

@@ -34,6 +34,8 @@ Uso correcto y consistente de hooks, lógica clara, actualización adecuada del 
 
 ## 2. Consumo de API y renderizado de datos
 
+**Documentación interactiva Swagger:** `npm run docs:api` → **http://localhost:8888** · [docs/api/README.md](./api/README.md)
+
 ### Criterio Excelente
 Consumo correcto de API, manejo de peticiones, renderizado claro y útil, retroalimentación visual.
 

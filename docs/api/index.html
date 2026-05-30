@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fleet Control — API Swagger</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css"
+    />
+    <style>
+      html {
+        box-sizing: border-box;
+        overflow-y: scroll;
+      }
+      *,
+      *:before,
+      *:after {
+        box-sizing: inherit;
+      }
+      body {
+        margin: 0;
+        background: #fafafa;
+      }
+      .top-bar {
+        background: #0a1628;
+        color: #e8ecf2;
+        padding: 14px 24px;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .top-bar h1 {
+        margin: 0 0 6px;
+        font-size: 1.25rem;
+        font-weight: 800;
+      }
+      .top-bar p {
+        margin: 0;
+        font-size: 0.875rem;
+        opacity: 0.85;
+      }
+      .top-bar a {
+        color: #00c2a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top-bar">
+      <h1>Fleet Control — Documentación API (Swagger)</h1>
+      <p>
+        Backend Supabase · PostgREST · Auth · Edge Functions ·
+        <a href="openapi.yaml" target="_blank">openapi.yaml</a> ·
+        <a href="https://github.com/destruyer212/mobile-rn" target="_blank">GitHub</a>
+      </p>
+    </div>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = function () {
+        window.ui = SwaggerUIBundle({
+          url: './openapi.yaml',
+          dom_id: '#swagger-ui',
+          deepLinking: true,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+          layout: 'StandaloneLayout',
+          defaultModelsExpandDepth: 1,
+          defaultModelExpandDepth: 2,
+          docExpansion: 'list',
+          filter: true,
+          tryItOutEnabled: false,
+        });
+      };
+    </script>
+  </body>
+</html>

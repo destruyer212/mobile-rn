@@ -13,7 +13,8 @@
     "start:legacy": "npm run start --workspace=@fleet/app-legacy",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build:worker:apk": "npm run build:apk --workspace=@fleet/app-worker",
-    "build:admin:apk": "npm run build:apk --workspace=@fleet/app-admin"
+    "build:admin:apk": "npm run build:apk --workspace=@fleet/app-admin",
+    "docs:api": "npx --yes serve docs/api -l 8888"
   },
   "devDependencies": {
     "typescript": "~5.9.2"

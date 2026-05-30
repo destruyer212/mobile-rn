@@ -22,6 +22,8 @@ Permitir que **trabajadores en ruta** compartan su ubicación GPS con **administ
 
 **Guía completa para evaluación:** [docs/RUBRICA-APF2.md](./docs/RUBRICA-APF2.md)
 
+**Documentación API (Swagger):** ejecuta `npm run docs:api` y abre **http://localhost:8888** — ver [docs/api/README.md](./docs/api/README.md)
+
 ### Arquitectura básica
 
 ```text
@@ -311,6 +313,7 @@ eas build -p android --profile preview
 | `npm run typecheck` | TypeScript en todos los workspaces |
 | `npm run build:worker:apk` | EAS APK worker |
 | `npm run build:admin:apk` | EAS APK admin |
+| `npm run docs:api` | Swagger UI en http://localhost:8888 |
 
 ---
 
@@ -354,7 +357,7 @@ Guía detallada con matriz **Excelente**, archivos exactos y checklist de captur
 | **Bottom tabs** | `apps/admin/src/screens/admin/AdminDashboard.tsx` |
 | **Componente con props** | `packages/shared-ui/src/AsyncStateViews.tsx`, `TopDownMotoMarker.tsx` |
 | **Hooks personalizados** | `packages/shared-hooks/src/` |
-| **API (Supabase)** | `packages/shared-data/src/locationRepository.ts` |
+| **API (Supabase)** | `packages/shared-data/src/locationRepository.ts` · Swagger: `npm run docs:api` → http://localhost:8888 |
 | APK EAS | `npm run build:worker:apk`, `npm run build:admin:apk` |
 
 ---

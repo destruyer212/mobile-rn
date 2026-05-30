@@ -1,0 +1,639 @@
+openapi: 3.0.3
+info:
+  title: Fleet Control — API (Supabase)
+  description: |
+    Documentación OpenAPI de los recursos que consume la app móvil **Fleet Control**.
+
+    **Backend:** un solo proyecto [Supabase](https://supabase.com) (PostgREST + Auth + Edge Functions + Realtime).
+
+    **Apps cliente:**
+    - `apps/worker` — escribe `worker_locations`, Auth rol `worker`
+    - `apps/admin` — lee ubicaciones, gestiona equipo, mapa, reportes
+
+    **Autenticación:** JWT de Supabase Auth en header `Authorization: Bearer <access_token>`.
+    Clave pública en header `apikey` (anon / publishable key).
+
+    **Realtime:** suscripción WebSocket a cambios en `worker_locations` (`useWorkerLocations`).
+
+    Código fuente de repositorios: `packages/shared-data`, `packages/shared-auth`, `packages/shared-core`.
+  version: 1.0.0
+  contact:
+    name: Fleet Control mobile-rn
+    url: https://github.com/destruyer212/mobile-rn
+
+servers:
+  - url: https://whmezumhemyqezfokhlv.supabase.co
+    description: Proyecto Supabase (default en supabaseConfig.ts)
+  - url: '{supabaseUrl}'
+    description: URL personalizada (.env EXPO_PUBLIC_SUPABASE_URL)
+    variables:
+      supabaseUrl:
+        default: https://whmezumhemyqezfokhlv.supabase.co
+
+tags:
+  - name: Auth
+    description: Supabase Auth (login, sesión, JWT)
+  - name: worker_locations
+    description: Ubicación GPS en vivo de trabajadores
+  - name: worker_location_history
+    description: Historial de ruta (replay en mapa admin)
+  - name: profiles
+    description: Perfiles de usuario (nombre, teléfono)
+  - name: operational_base
+    description: Base operativa en mapa (círculo, radio)
+  - name: admin_audit_log
+    description: Auditoría de acciones admin
+  - name: admin_device_tokens
+    description: Tokens FCM/Expo push de administradores
+  - name: Edge Functions
+    description: Funciones serverless (solo admin donde aplique)
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /auth/v1/token:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión (email + contraseña)
+      description: |
+        Usado en `signInWithPassword` (`packages/shared-auth/src/authRepository.ts`).
+        Tras login se valida `user_metadata.role` vs rol fijo de la app (worker/admin).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, grant_type]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: trabajador@empresa.com
+                password:
+                  type: string
+                  format: password
+                grant_type:
+                  type: string
+                  enum: [password]
+      responses:
+        '200':
+          description: Sesión creada (access_token, refresh_token, user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          description: Credenciales inválidas
+
+  /auth/v1/logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesión
+      description: Usado en Admin Center al hacer sign out.
+      responses:
+        '204':
+          description: Sesión cerrada
+
+  /auth/v1/user:
+    get:
+      tags: [Auth]
+      summary: Usuario autenticado actual
+      description: Usado al registrar token push admin (`registerAdminDeviceToken`).
+      responses:
+        '200':
+          description: Datos del usuario JWT
+
+  /rest/v1/worker_locations:
+    get:
+      tags: [worker_locations]
+      summary: Listar ubicaciones de trabajadores
+      description: |
+        **Admin:** mapa en vivo, KPIs, reportes (`fetchWorkerLocations`, `useWorkerLocations`).
+        **Worker:** lee su propia fila al sincronizar pantalla inicio.
+      parameters:
+        - name: select
+          in: query
+          schema:
+            type: string
+          example: user_id,email,latitude,longitude,is_tracking,updated_at
+        - name: order
+          in: query
+          schema:
+            type: string
+          example: updated_at.desc
+      responses:
+        '200':
+          description: Lista de ubicaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkerLocation'
+    post:
+      tags: [worker_locations]
+      summary: Insertar / upsert ubicación (worker)
+      description: GPS manual o tarea en segundo plano (`upsertMyLocation`).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkerLocationUpsert'
+      responses:
+        '201':
+          description: Fila creada o actualizada
+
+  /rest/v1/worker_locations:
+    patch:
+      tags: [worker_locations]
+      summary: Upsert por user_id (onConflict)
+      description: Mismo endpoint PostgREST con `Prefer: resolution=merge-duplicates`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkerLocationUpsert'
+      responses:
+        '200':
+          description: Ubicación actualizada
+
+  /rest/v1/worker_location_history:
+    get:
+      tags: [worker_location_history]
+      summary: Historial de ruta de un trabajador
+      description: Replay en mapa admin (`fetchWorkerRouteHistory`). Fallback a `worker_locations` si la tabla no existe.
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: select
+          in: query
+          schema:
+            type: string
+          example: latitude,longitude,updated_at
+        - name: order
+          in: query
+          schema:
+            type: string
+          example: updated_at.asc
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          example: 80
+      responses:
+        '200':
+          description: Puntos de la ruta
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoutePoint'
+
+  /rest/v1/profiles:
+    get:
+      tags: [profiles]
+      summary: Perfiles por lista de IDs
+      description: Nombres y teléfonos en mapa admin (`fetchProfileFirstNamesByUserIds`, `fetchProfilePhonesByUserIds`).
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: string
+          description: Filtro `in.(uuid1,uuid2,...)`
+        - name: select
+          in: query
+          schema:
+            type: string
+          example: id,full_name
+      responses:
+        '200':
+          description: Perfiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Profile'
+
+  /rest/v1/operational_base:
+    get:
+      tags: [operational_base]
+      summary: Obtener base operativa (id=1)
+      description: Centro del mapa admin (`fetchOperationalBase`).
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: string
+          example: eq.1
+      responses:
+        '200':
+          description: Base operativa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalBase'
+    post:
+      tags: [operational_base]
+      summary: Crear / actualizar base operativa
+      description: Solo admin (`upsertOperationalBase`).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperationalBaseUpsert'
+      responses:
+        '200':
+          description: Base guardada
+
+  /rest/v1/admin_audit_log:
+    get:
+      tags: [admin_audit_log]
+      summary: Últimos registros de auditoría
+      description: Tab Centro admin (`fetchRecentAdminAuditLogs`).
+      parameters:
+        - name: select
+          in: query
+          schema:
+            type: string
+          example: actor_email,action,created_at
+        - name: order
+          in: query
+          schema:
+            type: string
+          example: created_at.desc
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          example: 8
+      responses:
+        '200':
+          description: Entradas de auditoría
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLogEntry'
+    post:
+      tags: [admin_audit_log]
+      summary: Registrar acción admin
+      description: `logAdminAction` (renombrar base, etc.).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditLogInsert'
+      responses:
+        '201':
+          description: Registro creado
+
+  /rest/v1/admin_device_tokens:
+    post:
+      tags: [admin_device_tokens]
+      summary: Registrar token push del admin
+      description: `registerAdminDeviceToken` — notificaciones cuando worker se conecta/desconecta.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminDeviceTokenUpsert'
+      responses:
+        '201':
+          description: Token registrado
+
+  /functions/v1/admin-manage-workers:
+    post:
+      tags: [Edge Functions]
+      summary: Gestión de trabajadores (solo admin)
+      description: |
+        Edge Function invocada desde `WorkerAdminRepository`.
+        Acciones: `list`, `create`, `update`, `set_status`, `delete`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/AdminManageWorkersList'
+                - $ref: '#/components/schemas/AdminManageWorkersCreate'
+                - $ref: '#/components/schemas/AdminManageWorkersUpdate'
+                - $ref: '#/components/schemas/AdminManageWorkersSetStatus'
+                - $ref: '#/components/schemas/AdminManageWorkersDelete'
+      responses:
+        '200':
+          description: Resultado de la acción
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ManagedWorker'
+                  error:
+                    type: string
+
+  /functions/v1/notify-admin-disconnect:
+    post:
+      tags: [Edge Functions]
+      summary: Notificar eventos de worker a admins (push)
+      description: |
+        Invocada desde `notifyAdminsWorkerEvent` (worker app).
+        Eventos: `app_open`, `tracking_on`, `disconnect`, `stationary`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_name, event]
+              properties:
+                worker_name:
+                  type: string
+                  example: Juan
+                event:
+                  type: string
+                  enum: [app_open, tracking_on, disconnect, stationary]
+      responses:
+        '200':
+          description: Resultado envío push
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: integer
+                  total_tokens:
+                    type: integer
+                  error:
+                    type: string
+
+  /realtime/v1:
+    get:
+      tags: [worker_locations]
+      summary: Realtime — cambios en worker_locations (WebSocket)
+      description: |
+        No es REST; canal Postgres vía Supabase Realtime.
+        Implementado en `useWorkerLocations` (evento `*` en tabla `worker_locations`).
+      responses:
+        '101':
+          description: Upgrade WebSocket
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: access_token de Supabase Auth
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: apikey
+      description: EXPO_PUBLIC_SUPABASE_ANON_KEY o publishable key
+
+  schemas:
+    AuthTokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            email:
+              type: string
+            user_metadata:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [worker, admin]
+
+    WorkerLocation:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        is_tracking:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+
+    WorkerLocationUpsert:
+      type: object
+      required: [user_id, latitude, longitude, is_tracking]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        is_tracking:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+
+    RoutePoint:
+      type: object
+      properties:
+        latitude:
+          type: number
+        longitude:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+
+    Profile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        phone:
+          type: string
+
+    OperationalBase:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+        enabled:
+          type: boolean
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        radius_meters:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+
+    OperationalBaseUpsert:
+      allOf:
+        - $ref: '#/components/schemas/OperationalBase'
+
+    AuditLogEntry:
+      type: object
+      properties:
+        actor_email:
+          type: string
+        action:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AuditLogInsert:
+      type: object
+      required: [actor_email, action]
+      properties:
+        actor_email:
+          type: string
+        action:
+          type: string
+        metadata:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    AdminDeviceTokenUpsert:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        fcm_token:
+          type: string
+        platform:
+          type: string
+          enum: [android, ios, web]
+        updated_at:
+          type: string
+          format: date-time
+
+    ManagedWorker:
+      type: object
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        jobTitle:
+          type: string
+        suspended:
+          type: boolean
+
+    AdminManageWorkersList:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [list]
+
+    AdminManageWorkersCreate:
+      type: object
+      required: [action, email, password, full_name]
+      properties:
+        action:
+          type: string
+          enum: [create]
+        email:
+          type: string
+        password:
+          type: string
+        full_name:
+          type: string
+        phone:
+          type: string
+        job_title:
+          type: string
+        notes:
+          type: string
+        employee_code:
+          type: string
+
+    AdminManageWorkersUpdate:
+      type: object
+      required: [action, user_id, email, full_name]
+      properties:
+        action:
+          type: string
+          enum: [update]
+        user_id:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        full_name:
+          type: string
+
+    AdminManageWorkersSetStatus:
+      type: object
+      required: [action, user_id, suspended]
+      properties:
+        action:
+          type: string
+          enum: [set_status]
+        user_id:
+          type: string
+        suspended:
+          type: boolean
+
+    AdminManageWorkersDelete:
+      type: object
+      required: [action, user_id]
+      properties:
+        action:
+          type: string
+          enum: [delete]
+        user_id:
+          type: string

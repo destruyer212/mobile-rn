@@ -146,12 +146,10 @@ paths:
       responses:
         '201':
           description: Fila creada o actualizada
-
-  /rest/v1/worker_locations:
     patch:
       tags: [worker_locations]
       summary: Upsert por user_id (onConflict)
-      description: Mismo endpoint PostgREST con `Prefer: resolution=merge-duplicates`.
+      description: "Mismo endpoint PostgREST con header Prefer resolution=merge-duplicates."
       requestBody:
         content:
           application/json:
@@ -207,7 +205,7 @@ paths:
           in: query
           schema:
             type: string
-          description: Filtro `in.(uuid1,uuid2,...)`
+          description: "Filtro PostgREST in.(uuid1,uuid2,...)"
         - name: select
           in: query
           schema:
@@ -287,7 +285,7 @@ paths:
     post:
       tags: [admin_audit_log]
       summary: Registrar acción admin
-      description: `logAdminAction` (renombrar base, etc.).
+      description: "logAdminAction — renombrar base, etc."
       requestBody:
         content:
           application/json:
@@ -301,7 +299,7 @@ paths:
     post:
       tags: [admin_device_tokens]
       summary: Registrar token push del admin
-      description: `registerAdminDeviceToken` — notificaciones cuando worker se conecta/desconecta.
+      description: "registerAdminDeviceToken — notificaciones cuando worker se conecta o desconecta."
       requestBody:
         content:
           application/json:

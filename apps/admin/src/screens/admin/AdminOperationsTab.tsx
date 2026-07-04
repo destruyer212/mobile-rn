@@ -54,14 +54,6 @@ function isValidCoordinate(lat: number, lng: number) {
   return !isZeroIsland;
 }
 
-/**
- * Pin con `image` (sin children): en Android un Marker con hijos `View` a menudo queda en blanco con
- * `tracksViewChanges={false}`. Los PNG en `assets` se dibujan en la ruta nativa de Google Maps.
- * Nombre: segundo Marker con solo texto, ligeramente al norte del punto.
- */
-const MOTO_MARKER_ON = require('../../../assets/moto-marker-on.png');
-const MOTO_MARKER_OFF = require('../../../assets/moto-marker-off.png');
-
 /** Desplazamiento hacia el norte (grados) para el chip de nombre encima de la moto. */
 const MOTO_NAME_LABEL_D_LAT = 0.00014;
 
@@ -77,8 +69,10 @@ function motoMapVisualForWorker(w: WorkerLocation): MotoMapVisual {
   return 'on';
 }
 
-function motoMarkerImageForVisual(v: MotoMapVisual) {
-  return v === 'on' ? MOTO_MARKER_ON : MOTO_MARKER_OFF;
+function firstNameForMapLabel(fullName: string): string {
+  const clean = fullName.trim();
+  if (!clean) return 'Unidad';
+  return clean.split(/\s+/)[0]?.trim() || clean;
 }
 
 type Props = {
@@ -558,6 +552,7 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
       const b = await repo.fetchOperationalBase();
       setOperationalBase(b);
       setBasePanelOpen(false);
+      setSelectingBaseCenter(false);
       showToast('Base operativa guardada');
       void repo.logAdminAction({
         actorEmail: _username,
@@ -702,15 +697,15 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
                 const motoV = motoMapVisualForWorker(w);
                 const isFollowing = followWorkerId === w.userId;
                 const markerFullName = displayWorkerName(w, firstNameById);
+                const markerMapName = firstNameForMapLabel(markerFullName);
                 return [
                   <Marker
                     key={`worker-pin-${w.userId}`}
-                    image={motoMarkerImageForVisual(motoV)}
                     coordinate={{ latitude: w.latitude, longitude: w.longitude }}
                     title={markerFullName}
                     description={online ? 'En linea' : 'Sin senal en vivo'}
                     zIndex={isFollowing ? 5 : 4}
-                    tracksViewChanges={false}
+                    tracksViewChanges={Platform.OS === 'android'}
                     anchor={{ x: 0.5, y: 0.5 }}
                     onPress={() => {
                       setFollowWorkerId((prev) => {
@@ -723,7 +718,36 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
                         return next;
                       });
                     }}
-                  />,
+                  >
+                    <View
+                      collapsable={Platform.OS === 'android' ? false : undefined}
+                      style={[
+                        styles.workerBikeMarker,
+                        motoV === 'critical'
+                          ? styles.workerMapMarkerCritical
+                          : motoV === 'trackOff'
+                            ? styles.workerMapMarkerTrackingOff
+                            : motoV === 'off'
+                              ? styles.workerMapMarkerOff
+                              : styles.workerMapMarkerOn,
+                        isFollowing && styles.workerMapMarkerFollowing,
+                      ]}
+                    >
+                      <MaterialCommunityIcons name="motorbike" size={18} color="#F8FAFC" />
+                      <View
+                        style={[
+                          styles.workerStatusDot,
+                          motoV === 'critical'
+                            ? styles.workerStatusDotCritical
+                            : motoV === 'trackOff'
+                              ? styles.workerStatusDotTrackingOff
+                              : motoV === 'off'
+                                ? styles.workerStatusDotOff
+                                : styles.workerStatusDotOn,
+                        ]}
+                      />
+                    </View>
+                  </Marker>,
                   <Marker
                     key={`worker-lbl-${w.userId}`}
                     coordinate={{
@@ -754,11 +778,11 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
                         style={[
                           styles.motoMapNameChip,
                           isFollowing && styles.motoMapNameChipFollow,
-                          markerFullName.length > 12 ? styles.motoMapNameChipNarrow : null,
+                          markerMapName.length > 12 ? styles.motoMapNameChipNarrow : null,
                         ]}
                       >
                         <Text style={styles.motoMapNameText} numberOfLines={1} ellipsizeMode="tail">
-                          {markerFullName}
+                          {markerMapName}
                         </Text>
                       </View>
                     </View>
@@ -795,21 +819,29 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
             })}
             {missingLocationGhostMarkers.flatMap((ghost) => {
               const workerLabel = managedWorkerDisplayName(ghost.worker);
+              const workerMapLabel = firstNameForMapLabel(workerLabel);
               return [
                 <Marker
                   key={`ghost-pin-${ghost.worker.id}`}
-                  image={MOTO_MARKER_OFF}
                   coordinate={{ latitude: ghost.latitude, longitude: ghost.longitude }}
                   title={workerLabel}
                   description="Sin ubicacion GPS reportada"
                   zIndex={2}
                   style={{ opacity: 0.55 }}
-                  tracksViewChanges={false}
+                  tracksViewChanges={Platform.OS === 'android'}
                   anchor={{ x: 0.5, y: 0.5 }}
                   onPress={() => {
                     showToast(`${workerLabel}: sin ubicacion GPS reportada`);
                   }}
-                />,
+                >
+                  <View
+                    collapsable={Platform.OS === 'android' ? false : undefined}
+                    style={[styles.workerBikeMarker, styles.workerMapMarkerMissing]}
+                  >
+                    <MaterialCommunityIcons name="motorbike" size={18} color="#F8FAFC" />
+                    <View style={[styles.workerStatusDot, styles.workerStatusDotMissing]} />
+                  </View>
+                </Marker>,
                 <Marker
                   key={`ghost-lbl-${ghost.worker.id}`}
                   coordinate={{
@@ -832,11 +864,11 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
                       style={[
                         styles.motoMapNameChip,
                         styles.motoMapNameChipGhostMap,
-                        workerLabel.length > 12 ? styles.motoMapNameChipNarrow : null,
+                        workerMapLabel.length > 12 ? styles.motoMapNameChipNarrow : null,
                       ]}
                     >
                       <Text style={styles.motoMapNameText} numberOfLines={1} ellipsizeMode="tail">
-                        {workerLabel}
+                        {workerMapLabel}
                       </Text>
                     </View>
                   </View>
@@ -985,7 +1017,10 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
             </Pressable>
           ) : null}
           <Pressable
-            onPress={() => setBasePanelOpen(true)}
+            onPress={() => {
+              setSelectingBaseCenter(false);
+              setBasePanelOpen(true);
+            }}
             style={[
               styles.fab,
               (basePanelOpen || selectingBaseCenter) && styles.fabActive,
@@ -1254,14 +1289,20 @@ export function AdminOperationsTab({ username: _username, role, focusWorkerId, o
               onPress={() => {
                 setBasePanelOpen(false);
                 setSelectingBaseCenter(true);
-              showToast('Selecciona un punto en el mapa o arrastra el icono base');
+                showToast('Selecciona un punto en el mapa o arrastra el icono base');
               }}
               style={styles.pickCenterBtn}
             >
               <Text style={styles.pickCenterBtnText}>Seleccionar centro en mapa</Text>
             </Pressable>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setBasePanelOpen(false)} style={[styles.saveBtn, styles.modalCancelBtn]}>
+              <Pressable
+                onPress={() => {
+                  setBasePanelOpen(false);
+                  setSelectingBaseCenter(false);
+                }}
+                style={[styles.saveBtn, styles.modalCancelBtn]}
+              >
                 <Text style={styles.modalCancelText}>Cancelar</Text>
               </Pressable>
               <Pressable
@@ -1521,9 +1562,10 @@ const styles = StyleSheet.create({
     borderColor: '#F8FAFC',
   },
   motoMapNameChip: {
-    maxWidth: 168,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    minWidth: 58,
+    maxWidth: 128,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
     borderRadius: 8,
     backgroundColor: 'rgba(15,23,42,0.78)',
     borderWidth: 1,
@@ -1538,12 +1580,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(125,211,252,0.95)',
     backgroundColor: 'rgba(15,23,42,0.9)',
   },
-  motoMapNameChipNarrow: { maxWidth: 142 },
+  motoMapNameChipNarrow: { maxWidth: 150 },
   motoMapNameChipGhostMap: {
     borderColor: 'rgba(255,255,255,0.15)',
     backgroundColor: 'rgba(15,23,42,0.65)',
   },
-  motoMapNameText: { color: '#F8FAFC', fontWeight: '800', fontSize: 10.5, letterSpacing: 0.2 },
+  motoMapNameText: { color: '#F8FAFC', fontWeight: '900', fontSize: 11, letterSpacing: 0 },
   workerMotoEmoji: { fontSize: 19, lineHeight: 21, textAlign: 'center' },
   workerStatusDot: {
     position: 'absolute',
@@ -1883,4 +1925,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-

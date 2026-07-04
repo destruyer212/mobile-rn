@@ -28,11 +28,11 @@ export function AdminDashboard({ username, role }: { username: string; role: Use
   }, []);
 
   useEffect(() => {
-    void registerAdminDeviceToken();
+    void registerAdminDeviceToken().catch(() => undefined);
 
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void registerAdminDeviceToken();
+        void registerAdminDeviceToken().catch(() => undefined);
       }
     });
     return () => sub.remove();

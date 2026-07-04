@@ -15,54 +15,62 @@ let initialized = false;
 
 export async function initializePushNotifications(): Promise<void> {
   if (initialized) return;
-  await initializeLocalNotifications();
-  await Notifications.requestPermissionsAsync();
+  try {
+    await initializeLocalNotifications();
+    await Notifications.requestPermissionsAsync();
+  } catch {
+    // Push es auxiliar para admin; nunca debe impedir entrar al panel.
+  }
   initialized = true;
 }
 
 export async function registerAdminDeviceToken(): Promise<void> {
-  if (!canUseSupabaseAuth()) return;
-  await initializePushNotifications();
-
-  const user = getSupabaseClient().auth.getUser
-    ? (await getSupabaseClient().auth.getUser()).data.user
-    : null;
-  if (!user) return;
-
-  let token: string | null = null;
-
   try {
-    const native = await Notifications.getDevicePushTokenAsync();
-    token = String(native.data ?? '');
-  } catch {
-    token = null;
-  }
+    if (!canUseSupabaseAuth()) return;
+    await initializePushNotifications();
 
-  if (!token) {
+    const user = getSupabaseClient().auth.getUser
+      ? (await getSupabaseClient().auth.getUser()).data.user
+      : null;
+    if (!user) return;
+
+    let token: string | null = null;
+
     try {
-      const projectId =
-        Constants.expoConfig?.extra?.eas?.projectId ??
-        Constants.easConfig?.projectId;
-      const expoToken = await Notifications.getExpoPushTokenAsync({
-        projectId,
-      });
-      token = expoToken.data;
+      const native = await Notifications.getDevicePushTokenAsync();
+      token = String(native.data ?? '');
     } catch {
       token = null;
     }
+
+    if (!token) {
+      try {
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ??
+          Constants.easConfig?.projectId;
+        const expoToken = await Notifications.getExpoPushTokenAsync({
+          projectId,
+        });
+        token = expoToken.data;
+      } catch {
+        token = null;
+      }
+    }
+
+    if (!token) return;
+
+    await getSupabaseClient().from('admin_device_tokens').upsert(
+      {
+        user_id: user.id,
+        fcm_token: token,
+        platform: Platform.OS,
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: 'fcm_token' },
+    );
+  } catch {
+    // Best effort only.
   }
-
-  if (!token) return;
-
-  await getSupabaseClient().from('admin_device_tokens').upsert(
-    {
-      user_id: user.id,
-      fcm_token: token,
-      platform: Platform.OS,
-      updated_at: new Date().toISOString(),
-    } as never,
-    { onConflict: 'fcm_token' },
-  );
 }
 
 export async function notifyAdminsWorkerEvent(params: {

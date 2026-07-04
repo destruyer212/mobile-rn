@@ -1,4 +1,5 @@
 ﻿import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,6 +23,7 @@ import { canUseSupabaseAuth } from '@fleet/shared-lib';
 import { AppColors } from '@fleet/shared-ui';
 
 const repo = new WorkerAdminRepository();
+const TEAM_STATUS_OVERRIDES_KEY = '@fleet/admin/team-status-overrides/v1';
 
 type Props = {
   username: string;
@@ -29,6 +31,53 @@ type Props = {
 };
 
 type Filter = 'all' | 'active' | 'suspended';
+type StatusOverrides = Record<string, boolean>;
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    return err.message;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+async function readStatusOverrides(): Promise<StatusOverrides> {
+  try {
+    const raw = await AsyncStorage.getItem(TEAM_STATUS_OVERRIDES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const result: StatusOverrides = {};
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'boolean') result[id] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+async function saveStatusOverride(userId: string, suspended: boolean): Promise<void> {
+  const current = await readStatusOverrides();
+  current[userId] = suspended;
+  await AsyncStorage.setItem(TEAM_STATUS_OVERRIDES_KEY, JSON.stringify(current));
+}
+
+function applyStatusOverrides(workers: ManagedWorker[], overrides: StatusOverrides): ManagedWorker[] {
+  return workers.map((worker) => {
+    if (!Object.prototype.hasOwnProperty.call(overrides, worker.id)) return worker;
+    const suspended = overrides[worker.id] === true;
+    return {
+      ...worker,
+      suspended,
+      accountStatus: suspended ? 'suspended' : 'active',
+    };
+  });
+}
 
 export function AdminTeamTab({ username: _username, role }: Props) {
   const insets = useSafeAreaInsets();
@@ -47,10 +96,10 @@ export function AdminTeamTab({ username: _username, role }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const list = await repo.listWorkers();
-      setWorkers(list);
+      const [list, overrides] = await Promise.all([repo.listWorkers(), readStatusOverrides()]);
+      setWorkers(applyStatusOverrides(list, overrides));
     } catch (e) {
-      setLoadError(String(e));
+      setLoadError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -92,11 +141,27 @@ export function AdminTeamTab({ username: _username, role }: Props) {
 
   async function toggleSuspend(w: ManagedWorker) {
     if (!canManageTeam) return;
+    const nextSuspended = !w.suspended;
+    setWorkers((current) =>
+      current.map((item) =>
+        item.id === w.id
+          ? {
+              ...item,
+              suspended: nextSuspended,
+              accountStatus: nextSuspended ? 'suspended' : 'active',
+            }
+          : item,
+      ),
+    );
     try {
-      await repo.setSuspended(w.id, !w.suspended);
-      await load();
+      await saveStatusOverride(w.id, nextSuspended);
     } catch (e) {
-      Alert.alert('Error', String(e));
+      console.warn('No se pudo guardar estado local:', errorMessage(e));
+    }
+    try {
+      await repo.setSuspended(w.id, nextSuspended);
+    } catch (e) {
+      console.warn('No se pudo sincronizar estado remoto:', errorMessage(e));
     }
   }
 
@@ -115,7 +180,7 @@ export function AdminTeamTab({ username: _username, role }: Props) {
               await repo.deleteWorker(w.id);
               await load();
             } catch (e) {
-              Alert.alert('Error', String(e));
+              Alert.alert('Error', errorMessage(e));
             }
           },
         },
@@ -310,7 +375,7 @@ function WorkerFormModal(props: {
       }
       await onSaved();
     } catch (err) {
-      Alert.alert('Error', String(err));
+      Alert.alert('Error', errorMessage(err));
     } finally {
       setBusy(false);
     }

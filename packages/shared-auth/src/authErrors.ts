@@ -55,6 +55,10 @@ export function friendlyAuthErrorMessage(error: unknown): string {
     return 'Correo o contrasena incorrectos.';
   }
 
+  if (s.includes('user is banned') || s.includes('banned')) {
+    return 'Esta cuenta esta suspendida en Supabase. Activala desde Gestion o quita el bloqueo en auth.users.';
+  }
+
   const cleaned = raw.replace(/^Error:\s*/i, '').replace(/^exception:\s*/i, '');
   if (cleaned.length > 200) {
     return `${cleaned.substring(0, 197)}...`;

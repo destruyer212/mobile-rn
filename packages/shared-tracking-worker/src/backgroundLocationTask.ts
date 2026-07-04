@@ -9,6 +9,8 @@ export const BACKGROUND_LOCATION_TASK = 'fleet-control-bg-location';
 const repo = new LocationRepository();
 const TASK_PAYLOAD_KEY = 'tracking_task_payload_v1';
 const OFFLINE_QUEUE_KEY = 'tracking_offline_queue_v1';
+const LAST_BACKGROUND_EVENT_KEY = 'tracking_last_background_event_v1';
+const LAST_SUCCESSFUL_UPLOAD_KEY = 'tracking_last_successful_upload_v1';
 const MAX_QUEUE_SIZE = 240;
 
 type TaskPayload = {
@@ -69,7 +71,9 @@ async function flushOfflineQueue(): Promise<void> {
         latitude: point.latitude,
         longitude: point.longitude,
         isTracking: true,
+        capturedAt: point.capturedAt,
       });
+      await AsyncStorage.setItem(LAST_SUCCESSFUL_UPLOAD_KEY, new Date().toISOString());
     } catch {
       remaining.push(point);
     }
@@ -105,6 +109,19 @@ export async function getPendingUploadCount(): Promise<number> {
   return queue.length;
 }
 
+export async function getTrackingBackgroundSnapshot(): Promise<{
+  pendingUploads: number;
+  lastBackgroundEventAt: string | null;
+  lastSuccessfulUploadAt: string | null;
+}> {
+  const [pendingUploads, lastBackgroundEventAt, lastSuccessfulUploadAt] = await Promise.all([
+    getPendingUploadCount(),
+    AsyncStorage.getItem(LAST_BACKGROUND_EVENT_KEY),
+    AsyncStorage.getItem(LAST_SUCCESSFUL_UPLOAD_KEY),
+  ]);
+  return { pendingUploads, lastBackgroundEventAt, lastSuccessfulUploadAt };
+}
+
 export async function upsertWithOfflineQueue(params: {
   userId: string;
   email: string;
@@ -120,7 +137,9 @@ export async function upsertWithOfflineQueue(params: {
       latitude: params.latitude,
       longitude: params.longitude,
       isTracking: true,
+      capturedAt: params.capturedAtIso ?? new Date().toISOString(),
     });
+    await AsyncStorage.setItem(LAST_SUCCESSFUL_UPLOAD_KEY, new Date().toISOString());
   } catch {
     await enqueueOfflinePoint({
       userId: params.userId,
@@ -137,24 +156,28 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     return;
   }
-  const loc = (data as { locations?: Location.LocationObject[] } | undefined)?.locations?.[0];
+  const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations ?? [];
   if (!taskPayload) {
     taskPayload = await readStoredPayload();
   }
   const p = taskPayload;
-  if (!loc || !p?.userId) {
+  if (locations.length === 0 || !p?.userId) {
     return;
   }
 
-  try {
-    await upsertWithOfflineQueue({
-      userId: p.userId,
-      email: p.email,
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-      capturedAtIso: new Date(loc.timestamp ?? Date.now()).toISOString(),
-    });
-  } catch {
-    // En modo background dejamos la cola local para reintentos automaticos.
+  await AsyncStorage.setItem(LAST_BACKGROUND_EVENT_KEY, new Date().toISOString());
+
+  for (const loc of locations) {
+    try {
+      await upsertWithOfflineQueue({
+        userId: p.userId,
+        email: p.email,
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        capturedAtIso: new Date(loc.timestamp ?? Date.now()).toISOString(),
+      });
+    } catch {
+      // En modo background dejamos la cola local para reintentos automaticos.
+    }
   }
 });

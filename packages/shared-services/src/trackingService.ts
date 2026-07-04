@@ -10,11 +10,31 @@ import {
   getPendingUploadCount,
 } from '@fleet/shared-tracking-worker';
 import { UPDATE_INTERVAL_SECONDS } from '@fleet/shared-config';
-import { setTrackingDesired } from './workerTrackingPrefs';
+import { isTrackingDesired, setTrackingDesired } from './workerTrackingPrefs';
 
 const repo = new LocationRepository();
 
 let foregroundTimer: ReturnType<typeof setInterval> | null = null;
+
+function backgroundLocationOptions(accuracy: Location.Accuracy): Location.LocationTaskOptions {
+  return {
+    accuracy,
+    mayShowUserSettingsDialog: true,
+    timeInterval: UPDATE_INTERVAL_SECONDS * 1000,
+    distanceInterval: 0,
+    deferredUpdatesDistance: 0,
+    deferredUpdatesInterval: 0,
+    deferredUpdatesTimeout: 0,
+    activityType: Location.ActivityType.AutomotiveNavigation,
+    pausesUpdatesAutomatically: false,
+    foregroundService: {
+      notificationTitle: 'Fleet Control activo',
+      notificationBody: `Compartiendo ubicacion cada ${UPDATE_INTERVAL_SECONDS}s. No cierres esta notificacion.`,
+      notificationColor: '#00C2A8',
+      killServiceOnDestroy: false,
+    },
+  };
+}
 
 async function upsert(userId: string, email: string, lat: number, lng: number) {
   await upsertWithOfflineQueue({
@@ -24,6 +44,54 @@ async function upsert(userId: string, email: string, lat: number, lng: number) {
     longitude: lng,
     capturedAtIso: new Date().toISOString(),
   });
+}
+
+function startForegroundHeartbeat(params: { userId: string; email: string }): void {
+  if (foregroundTimer) {
+    clearInterval(foregroundTimer);
+    foregroundTimer = null;
+  }
+
+  foregroundTimer = setInterval(async () => {
+    try {
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        mayShowUserSettingsDialog: true,
+      });
+      await upsert(params.userId, params.email, pos.coords.latitude, pos.coords.longitude);
+    } catch {
+      /* background/offline queue handles the next valid point */
+    }
+  }, Math.max(UPDATE_INTERVAL_SECONDS * 1000, 15_000));
+}
+
+async function startOrRestartBackgroundTask(): Promise<boolean> {
+  const already = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+  if (already) {
+    try {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+    } catch {
+      /* continue and try to start again */
+    }
+  }
+
+  try {
+    await Location.startLocationUpdatesAsync(
+      BACKGROUND_LOCATION_TASK,
+      backgroundLocationOptions(Location.Accuracy.High),
+    );
+    return true;
+  } catch {
+    try {
+      await Location.startLocationUpdatesAsync(
+        BACKGROUND_LOCATION_TASK,
+        backgroundLocationOptions(Location.Accuracy.Balanced),
+      );
+      return true;
+    } catch {
+      return await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+    }
+  }
 }
 
 export async function requestLocationPermissions(requireBackground: boolean): Promise<boolean> {
@@ -73,45 +141,28 @@ export async function startTracking(params: { userId: string; email: string }): 
   await setBackgroundTaskPayload({ userId: params.userId, email: params.email });
   await setTrackingDesired(params.userId, true);
 
-  let bgOk = false;
-  const already = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-  if (!already) {
-    try {
-      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: UPDATE_INTERVAL_SECONDS * 1000,
-        distanceInterval: 0,
-        foregroundService: {
-          notificationTitle: 'Segundo plano activo',
-          notificationBody: `Seguimiento GPS ejecutandose cada ${UPDATE_INTERVAL_SECONDS}s`,
-          notificationColor: '#00C2A8',
-        },
-      });
-      bgOk = true;
-    } catch {
-      bgOk = false;
-    }
-  } else {
-    bgOk = true;
-  }
+  const bgOk = await startOrRestartBackgroundTask();
+  startForegroundHeartbeat(params);
 
-  if (foregroundTimer) {
-    clearInterval(foregroundTimer);
-    foregroundTimer = null;
-  }
+  return {
+    ok: true,
+    message: bgOk
+      ? 'Seguimiento robusto activo en segundo plano.'
+      : 'Seguimiento activo mientras la app este abierta. Revisa permisos de segundo plano.',
+  };
+}
 
-  if (!bgOk) {
-    foregroundTimer = setInterval(async () => {
-      try {
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        await upsert(params.userId, params.email, pos.coords.latitude, pos.coords.longitude);
-      } catch {
-        /* ignore */
-      }
-    }, UPDATE_INTERVAL_SECONDS * 1000);
-  }
-
-  return { ok: true };
+export async function repairTrackingIfNeeded(params: { userId: string; email: string }): Promise<boolean> {
+  const desired = await isTrackingDesired(params.userId);
+  if (!desired) return false;
+  const serviceEnabled = await Location.hasServicesEnabledAsync();
+  if (!serviceEnabled) return false;
+  const allowed = await requestLocationPermissions(true);
+  if (!allowed) return false;
+  await setBackgroundTaskPayload({ userId: params.userId, email: params.email });
+  await startOrRestartBackgroundTask();
+  startForegroundHeartbeat(params);
+  return true;
 }
 
 export async function stopTracking(userId: string): Promise<void> {

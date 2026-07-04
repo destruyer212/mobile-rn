@@ -23,9 +23,9 @@ import {
 import { LocationRepository } from '@fleet/shared-data';
 import { canUseSupabaseAuth } from '@fleet/shared-lib';
 import type { WorkerStackParamList } from '../navigation/types';
-import { getPendingTrackingQueueCount, startTracking, stopTracking } from '@fleet/shared-services';
-import { isTrackingDesired, setTrackingDesired } from '@fleet/shared-services';
-import { BACKGROUND_LOCATION_TASK } from '@fleet/shared-tracking-worker';
+import { getPendingTrackingQueueCount, repairTrackingIfNeeded, startTracking, stopTracking } from '@fleet/shared-services';
+import { isTrackingDesired } from '@fleet/shared-services';
+import { BACKGROUND_LOCATION_TASK, upsertWithOfflineQueue } from '@fleet/shared-tracking-worker';
 import { AppColors, ErrorBanner, LoadingBlock } from '@fleet/shared-ui';
 
 type Props = NativeStackScreenProps<WorkerStackParamList, 'WorkerHome'>;
@@ -148,11 +148,27 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void trySendAppOpenPush(true);
-        void refreshBackgroundStatus();
+        void (async () => {
+          if (trackingEnabled || (await isTrackingDesired(userId))) {
+            await repairTrackingIfNeeded({ userId, email: username });
+          }
+          await refreshBackgroundStatus();
+        })();
       }
     });
     return () => sub.remove();
-  }, [trySendAppOpenPush, refreshBackgroundStatus]);
+  }, [trackingEnabled, userId, username, trySendAppOpenPush, refreshBackgroundStatus]);
+
+  useEffect(() => {
+    if (!trackingEnabled) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        await repairTrackingIfNeeded({ userId, email: username });
+        await refreshBackgroundStatus();
+      })();
+    }, 45_000);
+    return () => clearInterval(timer);
+  }, [trackingEnabled, userId, username, refreshBackgroundStatus]);
 
   async function onToggle(value: boolean) {
     setStatusMessage(null);
@@ -183,9 +199,7 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
       } else if (outcome === 'fcmAllFailed') {
         showInfo('Seguimiento activo. El envio push a admins fallo, pero GPS sigue activo.');
       }
-      showInfo(
-        `Seguimiento activo. Segundo plano activo con notificacion del sistema.`,
-      );
+      showInfo(r.message ?? 'Seguimiento activo. Segundo plano activo con notificacion del sistema.');
       return;
     }
 
@@ -224,12 +238,12 @@ export function WorkerHomeScreen({ navigation, route }: Props) {
       }
 
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await repo.upsertMyLocation({
+      await upsertWithOfflineQueue({
         userId,
         email: username,
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
-        isTracking: true,
+        capturedAtIso: new Date(position.timestamp ?? Date.now()).toISOString(),
       });
       setLastLat(position.coords.latitude);
       setLastLng(position.coords.longitude);
@@ -444,4 +458,3 @@ const styles = StyleSheet.create({
   permissionWarn: { marginTop: 8, color: '#92400E', fontSize: 12, fontWeight: '700' },
   offlineQueueInfo: { marginTop: 8, color: '#1D4ED8', fontSize: 12, fontWeight: '700' },
 });
-

@@ -10,6 +10,15 @@ export type WorkerRoutePoint = {
   updatedAt: Date;
 };
 
+export type WorkerLocationHistoryPoint = {
+  userId: string;
+  email: string;
+  latitude: number;
+  longitude: number;
+  isTracking: boolean;
+  updatedAt: Date;
+};
+
 export type AdminHealthSnapshot = {
   workerLocationsOnline: number;
   workerLocationsTotal: number;
@@ -38,8 +47,7 @@ export class LocationRepository {
       const id = String(row.id ?? '');
       const fullName = String(row.full_name ?? '').trim();
       if (!id || !fullName) continue;
-      const firstName = fullName.split(/\s+/)[0]?.trim() ?? '';
-      if (firstName.length > 0) result[id] = firstName;
+      if (fullName.length > 0) result[id] = fullName;
     }
     return result;
   }
@@ -69,6 +77,31 @@ export class LocationRepository {
       .order('updated_at', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => workerLocationFromRow(row as Record<string, unknown>));
+  }
+
+  async fetchWorkerLocationHistorySince(days = 30): Promise<WorkerLocationHistoryPoint[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - Math.max(1, days));
+
+    const { data, error } = await getSupabaseClient()
+      .from('worker_location_history')
+      .select('user_id,email,latitude,longitude,is_tracking,updated_at')
+      .gte('updated_at', since.toISOString())
+      .order('updated_at', { ascending: true });
+
+    if (error) return [];
+
+    return (data ?? []).map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        userId: String(r.user_id ?? ''),
+        email: String(r.email ?? ''),
+        latitude: Number(r.latitude ?? 0),
+        longitude: Number(r.longitude ?? 0),
+        isTracking: Boolean(r.is_tracking ?? true),
+        updatedAt: new Date(String(r.updated_at ?? Date.now())),
+      };
+    });
   }
 
   async fetchWorkerRouteHistory(params: {
@@ -113,17 +146,30 @@ export class LocationRepository {
     latitude: number;
     longitude: number;
     isTracking: boolean;
+    capturedAt?: string | Date;
   }): Promise<void> {
+    const updatedAt =
+      params.capturedAt instanceof Date
+        ? params.capturedAt.toISOString()
+        : params.capturedAt ?? new Date().toISOString();
     const row = {
       user_id: params.userId,
       email: params.email,
       latitude: params.latitude,
       longitude: params.longitude,
       is_tracking: params.isTracking,
-      updated_at: new Date().toISOString(),
+      updated_at: updatedAt,
     };
     const { error } = await getSupabaseClient().from('worker_locations').upsert(row as never, { onConflict: 'user_id' });
     if (error) throw error;
+    await this.insertLocationHistory({
+      userId: params.userId,
+      email: params.email,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      isTracking: params.isTracking,
+      capturedAt: updatedAt,
+    });
   }
 
   async setTrackingDisabled(userId: string): Promise<void> {
@@ -185,7 +231,7 @@ export class LocationRepository {
 
   async fetchAdminHealthSnapshot(): Promise<AdminHealthSnapshot> {
     const workers = await this.fetchWorkerLocations();
-    const onlineMs = 60 * 1000;
+    const onlineMs = 5 * 60 * 1000;
     const now = Date.now();
     const online = workers.filter((w) => now - w.updatedAt.getTime() <= onlineMs).length;
     const staleWorkers = workers.filter((w) => now - w.updatedAt.getTime() > 10 * 60 * 1000).length;
@@ -214,5 +260,25 @@ export class LocationRepository {
       action: String((row as Record<string, unknown>).action ?? 'unknown'),
       createdAt: new Date(String((row as Record<string, unknown>).created_at ?? Date.now())),
     }));
+  }
+
+  private async insertLocationHistory(params: {
+    userId: string;
+    email: string;
+    latitude: number;
+    longitude: number;
+    isTracking: boolean;
+    capturedAt: string;
+  }): Promise<void> {
+    const row = {
+      user_id: params.userId,
+      email: params.email,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      is_tracking: params.isTracking,
+      updated_at: params.capturedAt,
+    };
+    const { error } = await getSupabaseClient().from('worker_location_history').insert(row as never);
+    if (error) return;
   }
 }

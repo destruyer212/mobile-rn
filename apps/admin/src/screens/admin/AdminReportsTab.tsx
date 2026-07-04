@@ -49,13 +49,21 @@ type AlertItem = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 };
 
-function csvCell(value: unknown): string {
-  const text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
-  return `"${text.replace(/"/g, '""')}"`;
+function htmlCell(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function csvRow(values: unknown[]): string {
-  return values.map(csvCell).join(';');
+function excelStatusClass(w: WorkerLocation): string {
+  const status = statusText(w).label;
+  if (status === 'En campo') return 'status-ok';
+  if (status === 'Critico') return 'status-critical';
+  if (status === 'Tracking OFF') return 'status-paused';
+  return 'status-warning';
 }
 
 function dateOnlyLocal(d: Date): Date {
@@ -276,50 +284,201 @@ export function AdminReportsTab({ username, role, onOpenWorkerOnMap }: Props) {
 
   const cardWidth = Math.floor((width - 42) / 2);
 
-  async function exportCsv(): Promise<void> {
+  async function exportExcel(): Promise<void> {
     if (!can(role, 'reports.export.csv')) return;
-    const header = csvRow([
-      'ID trabajador',
-      'Nombre',
-      'Correo',
-      'Telefono',
-      'Zona',
-      'Estado',
-      'En linea',
-      'Tracking',
-      'Ultimo reporte',
-      'Latitud',
-      'Longitud',
-    ]);
-    const rows = workers.map((w) =>
-      csvRow([
-        w.userId,
-        displayWorkerName(w, firstNameById),
-        w.email,
-        phoneById[w.userId] ?? '',
-        locationLabel(w),
-        statusText(w).label,
-        isWorkerOnline(w) ? 'SI' : 'NO',
-        w.isTracking ? 'SI' : 'NO',
-        w.updatedAt.toLocaleString('es-PE'),
-        w.latitude.toFixed(6),
-        w.longitude.toFixed(6),
-      ]),
-    );
-    const csv = `\ufeffsep=;\r\n${[header, ...rows].join('\r\n')}`;
+    const generatedAt = new Date();
+    const onlinePct = workers.length ? Math.round((online / workers.length) * 100) : 0;
+    const trackingPct = workers.length ? Math.round((tracking / workers.length) * 100) : 0;
+    const criticalPct = workers.length ? Math.round((criticalAlerts.length / workers.length) * 100) : 0;
+    const trendClass =
+      comparison.current > comparison.previous
+        ? 'status-ok'
+        : comparison.current < comparison.previous
+          ? 'status-warning'
+          : 'status-info';
+
+    const activityRows = activityEntries
+      .map(([day, count]) => {
+        const pct = Math.max(6, Math.round((count / Math.max(1, maxActivity)) * 100));
+        const cls = count === 0 ? 'status-muted' : count >= Math.max(1, Math.round(maxActivity * 0.7)) ? 'status-ok' : 'status-warning';
+        return `
+          <tr>
+            <td>${htmlCell(dayLabel(day))}</td>
+            <td>${htmlCell(weekdayLabel(day))}</td>
+            <td class="num">${count}</td>
+            <td>
+              <div class="bar-track"><div class="bar-fill" style="width:${pct}%;"></div></div>
+            </td>
+            <td><span class="pill ${cls}">${count === 0 ? 'Sin actividad' : count >= Math.max(1, Math.round(maxActivity * 0.7)) ? 'Alta' : 'Media'}</span></td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const teamRows = workers
+      .slice()
+      .sort((a, b) => displayWorkerName(a, firstNameById).localeCompare(displayWorkerName(b, firstNameById)))
+      .map((w, index) => {
+        const status = statusText(w);
+        const onlineFlag = isWorkerOnline(w);
+        return `
+          <tr>
+            <td class="num">${index + 1}</td>
+            <td class="strong">${htmlCell(displayWorkerName(w, firstNameById))}</td>
+            <td>${htmlCell(w.email)}</td>
+            <td>${htmlCell(phoneById[w.userId] ?? 'Sin telefono')}</td>
+            <td>${htmlCell(locationLabel(w))}</td>
+            <td><span class="pill ${excelStatusClass(w)}">${htmlCell(status.label)}</span></td>
+            <td>${htmlCell(status.sub)}</td>
+            <td><span class="pill ${onlineFlag ? 'status-ok' : 'status-warning'}">${onlineFlag ? 'SI' : 'NO'}</span></td>
+            <td><span class="pill ${w.isTracking ? 'status-ok' : 'status-paused'}">${w.isTracking ? 'ON' : 'OFF'}</span></td>
+            <td>${htmlCell(w.updatedAt.toLocaleString('es-PE'))}</td>
+            <td class="num">${w.latitude.toFixed(6)}</td>
+            <td class="num">${w.longitude.toFixed(6)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const alertRows =
+      alertItems.length === 0
+        ? '<tr><td colspan="5" class="empty">Sin alertas activas. Operacion estable.</td></tr>'
+        : alertItems
+            .slice(0, 40)
+            .map((a, index) => {
+              const cls =
+                a.level === 'Critica'
+                  ? 'status-critical'
+                  : a.level === 'Advertencia'
+                    ? 'status-warning'
+                    : 'status-info';
+              return `
+                <tr>
+                  <td class="num">${index + 1}</td>
+                  <td><span class="pill ${cls}">${htmlCell(a.level)}</span></td>
+                  <td class="strong">${htmlCell(displayWorkerName(a.worker, firstNameById))}</td>
+                  <td>${htmlCell(a.title)}</td>
+                  <td>${htmlCell(a.detail)}</td>
+                </tr>
+              `;
+            })
+            .join('');
+
+    const excelHtml = `\ufeff<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+      <head>
+        <meta charset="utf-8" />
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Reporte operativo</x:Name>
+                <x:WorksheetOptions><x:FreezePanes/><x:FrozenNoSplit/><x:SplitHorizontal>7</x:SplitHorizontal></x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          body { font-family: Arial, sans-serif; color: #0F172A; background: #F8FAFC; }
+          table { border-collapse: collapse; width: 100%; }
+          td, th { border: 1px solid #D8E2EE; padding: 8px 10px; font-size: 12px; vertical-align: middle; }
+          th { background: #0B1F3A; color: #FFFFFF; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+          .sheet { width: 1180px; }
+          .hero td { border: none; background: #071A33; color: #FFFFFF; }
+          .hero-title { font-size: 24px; font-weight: 800; padding: 18px 20px 4px 20px; }
+          .hero-sub { color: #CFE7FF; padding: 0 20px 18px 20px; }
+          .stamp { text-align: right; color: #BFEFE8; font-weight: 700; }
+          .spacer td { border: none; height: 12px; background: #F8FAFC; padding: 0; }
+          .section-title td { border: none; background: #E0F7F4; color: #075E56; font-weight: 800; font-size: 14px; }
+          .kpi td { border: 1px solid #C7D2FE; background: #FFFFFF; }
+          .kpi-label { color: #475569; font-weight: 800; text-transform: uppercase; font-size: 11px; }
+          .kpi-value { font-size: 28px; font-weight: 900; color: #08162B; }
+          .kpi-ok { border-left: 6px solid #00A896 !important; background: #E6FFFA !important; }
+          .kpi-blue { border-left: 6px solid #2F80ED !important; background: #EFF6FF !important; }
+          .kpi-orange { border-left: 6px solid #F97316 !important; background: #FFF7ED !important; }
+          .kpi-purple { border-left: 6px solid #8B5CF6 !important; background: #F5F3FF !important; }
+          .num { text-align: right; mso-number-format: "0"; }
+          .strong { font-weight: 800; }
+          .muted { color: #64748B; }
+          .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 800; border: 1px solid transparent; }
+          .status-ok { background: #CCFBF1; color: #00695C; border-color: #5EEAD4; }
+          .status-warning { background: #FFEDD5; color: #B45309; border-color: #FDBA74; }
+          .status-critical { background: #FEE2E2; color: #B91C1C; border-color: #FCA5A5; }
+          .status-paused { background: #F3E8FF; color: #6D28D9; border-color: #C4B5FD; }
+          .status-info { background: #DBEAFE; color: #1D4ED8; border-color: #93C5FD; }
+          .status-muted { background: #E2E8F0; color: #475569; border-color: #CBD5E1; }
+          .bar-track { width: 180px; height: 14px; background: #E2E8F0; border-radius: 999px; overflow: hidden; }
+          .bar-fill { height: 14px; background: #00A896; border-radius: 999px; }
+          .empty { text-align: center; color: #64748B; font-style: italic; padding: 14px; }
+          .small { font-size: 11px; color: #475569; }
+        </style>
+      </head>
+      <body>
+        <table class="sheet">
+          <tr class="hero">
+            <td colspan="8" class="hero-title">Fleet Control - Reporte operativo</td>
+            <td colspan="4" class="stamp">Generado: ${htmlCell(generatedAt.toLocaleString('es-PE'))}</td>
+          </tr>
+          <tr class="hero">
+            <td colspan="12" class="hero-sub">Resumen ejecutivo, actividad, equipo en campo e indicadores para revision operativa.</td>
+          </tr>
+          <tr class="spacer"><td colspan="12"></td></tr>
+          <tr class="section-title"><td colspan="12">Indicadores principales</td></tr>
+          <tr class="kpi">
+            <td colspan="3" class="kpi-ok"><div class="kpi-label">En linea</div><div class="kpi-value">${online}</div><div class="small">${onlinePct}% del total</div></td>
+            <td colspan="3" class="kpi-blue"><div class="kpi-label">Tracking ON</div><div class="kpi-value">${tracking}</div><div class="small">${trackingPct}% operativo</div></td>
+            <td colspan="3" class="kpi-orange"><div class="kpi-label">Criticas</div><div class="kpi-value">${criticalAlerts.length}</div><div class="small">${criticalPct}% requiere revision</div></td>
+            <td colspan="3" class="kpi-purple"><div class="kpi-label">Registrados</div><div class="kpi-value">${workers.length}</div><div class="small">${staleOrOff} sin senal en vivo</div></td>
+          </tr>
+          <tr class="spacer"><td colspan="12"></td></tr>
+          <tr class="section-title"><td colspan="12">Comparativa ${periodDays} dias</td></tr>
+          <tr>
+            <th>Actual</th><th>Anterior</th><th>Tendencia</th><th>% cambio</th><th>Rutas</th><th>Horas activas</th><th>Promedio diario</th><th>Distancia km</th><th>Contactos criticos</th><th colspan="3">Observacion</th>
+          </tr>
+          <tr>
+            <td class="num">${comparison.current}</td>
+            <td class="num">${comparison.previous}</td>
+            <td><span class="pill ${trendClass}">${htmlCell(trend)}</span></td>
+            <td class="num">${currentTrendPct}%</td>
+            <td class="num">${activityTotal}</td>
+            <td class="num">${activeHours}</td>
+            <td class="num">${avgDaily.toFixed(1)}</td>
+            <td class="num">${distanceKm}</td>
+            <td class="num">${criticalAlerts.length}</td>
+            <td colspan="3">${htmlCell(trend === 'Bajando' ? 'Revisar cobertura y trabajadores sin senal.' : trend === 'Subiendo' ? 'Actividad operativa en mejora.' : 'Actividad estable durante el periodo.')}</td>
+          </tr>
+          <tr class="spacer"><td colspan="12"></td></tr>
+          <tr class="section-title"><td colspan="12">Actividad diaria</td></tr>
+          <tr><th>Dia</th><th>Semana</th><th>Contactos</th><th colspan="8">Indicador visual</th><th>Nivel</th></tr>
+          ${activityRows}
+          <tr class="spacer"><td colspan="12"></td></tr>
+          <tr class="section-title"><td colspan="12">Equipo y ubicacion</td></tr>
+          <tr>
+            <th>#</th><th>Nombre</th><th>Correo</th><th>Telefono</th><th>Zona</th><th>Estado</th><th>Detalle</th><th>En linea</th><th>Tracking</th><th>Ultimo reporte</th><th>Latitud</th><th>Longitud</th>
+          </tr>
+          ${teamRows || '<tr><td colspan="12" class="empty">No hay trabajadores para exportar.</td></tr>'}
+          <tr class="spacer"><td colspan="12"></td></tr>
+          <tr class="section-title"><td colspan="12">Alertas recientes</td></tr>
+          <tr><th>#</th><th>Nivel</th><th>Personal</th><th colspan="4">Alerta</th><th colspan="5">Detalle</th></tr>
+          ${alertRows}
+        </table>
+      </body>
+    </html>`;
+
     const stamp = new Date().toISOString().slice(0, 10);
-    const path = `${FileSystem.cacheDirectory}reporte_fleet_control_${stamp}.csv`;
-    await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+    const path = `${FileSystem.cacheDirectory}reporte_fleet_control_${stamp}.xls`;
+    await FileSystem.writeAsStringAsync(path, excelHtml, { encoding: FileSystem.EncodingType.UTF8 });
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(path, {
-        mimeType: 'text/csv',
-        dialogTitle: 'Abrir reporte CSV en Excel',
-        UTI: 'public.comma-separated-values-text',
+        mimeType: 'application/vnd.ms-excel',
+        dialogTitle: 'Abrir reporte Excel',
+        UTI: 'com.microsoft.excel.xls',
       });
     }
     void repo.logAdminAction({
       actorEmail: username,
-      action: 'csv_exported',
+      action: 'excel_exported',
       metadata: { periodDays, workers: workers.length },
     });
   }
@@ -424,9 +583,9 @@ export function AdminReportsTab({ username, role, onOpenWorkerOnMap }: Props) {
           >
             <MaterialCommunityIcons name="refresh" size={16} color={AppColors.navy} />
           </Pressable>
-          <Pressable onPress={() => void exportCsv()} style={styles.export}>
-            <MaterialCommunityIcons name="download" size={14} color="#fff" />
-            <Text style={styles.exportText}>CSV</Text>
+          <Pressable onPress={() => void exportExcel()} style={styles.export}>
+            <MaterialCommunityIcons name="microsoft-excel" size={14} color="#fff" />
+            <Text style={styles.exportText}>Excel</Text>
           </Pressable>
           <Pressable
             onPress={() => void exportExecutivePdf()}

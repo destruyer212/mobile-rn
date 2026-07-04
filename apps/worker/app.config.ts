@@ -2,7 +2,7 @@ import type { ExpoConfig } from 'expo/config';
 
 const config: ExpoConfig = {
   name: 'Fleet Control Campo',
-  slug: 'fleet-control-worker',
+  slug: 'mobile-rn',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -30,6 +30,9 @@ const config: ExpoConfig = {
       'android.permission.ACCESS_BACKGROUND_LOCATION',
       'android.permission.FOREGROUND_SERVICE',
       'android.permission.FOREGROUND_SERVICE_LOCATION',
+      'android.permission.POST_NOTIFICATIONS',
+      'android.permission.ACCESS_NETWORK_STATE',
+      'android.permission.WAKE_LOCK',
     ],
   },
   plugins: [

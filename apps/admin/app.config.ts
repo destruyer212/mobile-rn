@@ -5,7 +5,7 @@ const googleMapsApiKey =
 
 const config: ExpoConfig = {
   name: 'Fleet Control Admin',
-  slug: 'fleet-control-admin',
+  slug: 'mobile-rn',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
